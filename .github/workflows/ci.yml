@@ -135,7 +135,7 @@ jobs:
       
       - name: Create test environment file
         run: |
-          echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" > .env
+          echo "GITHUB_TOKEN=${{ secrets.PAT_TOKEN }}" > .env
           echo "MISTRAL_ENDPOINT=https://models.inference.ai.azure.com" >> .env
           echo "MISTRAL_MODEL=mistral-large-2411" >> .env
           echo "CODERRR_BACKEND=http://localhost:5000" >> .env
