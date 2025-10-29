@@ -1,18 +1,43 @@
-# 🤖 Coderrr - AI Coding Agent CLI
+# Coderrr - AI Coding Agent CLI
 
-**Coderrr** is an AI-powered coding agent that works like Claude Code but runs on your system! It analyzes tasks, creates TODO lists, performs file operations, and executes commands with your permission.
+```
+   ██████╗ ██████╗ ██████╗ ███████╗██████╗ ██████╗ ██████╗ 
+  ██╔════╝██╔═══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔══██╗
+  ██║     ██║   ██║██║  ██║█████╗  ██████╔╝██████╔╝██████╔╝
+  ██║     ██║   ██║██║  ██║██╔══╝  ██╔══██╗██╔══██╗██╔══██╗
+  ╚██████╗╚██████╔╝██████╔╝███████╗██║  ██║██║  ██║██║  ██║
+   ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝
+```
 
-## ✨ Features
+**Your friendly neighbourhood Open Source AI-Powered Coding Agent**
 
-- 🎯 **Task Analysis** - Breaks down requests into actionable TODO items
-- 📝 **File Operations** - Create, update, patch, delete, and read files
-- 💻 **Command Execution** - Runs shell commands with permission prompts (like GitHub Copilot)
-- 🧪 **Auto Testing** - Automatically detects and runs tests after completing tasks
-- 🔍 **Codebase Scanner** - Automatically scans and understands your project structure for accurate file editing
-- 🎨 **Beautiful CLI** - Clean, colorful interface with progress indicators
-- 🔄 **Interactive Mode** - Continuous conversation loop for iterative development
+Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable plans, performs file operations, and executes commands with user permission. Built for developers who want automated assistance without sacrificing control.
 
-## 🚀 Installation
+---
+
+## Features
+
+### Core Capabilities
+
+- **Task Analysis** - Breaks down complex requests into structured, actionable TODO items
+- **File Operations** - Create, update, patch, delete, and read files with automatic directory creation
+- **Command Execution** - Runs shell commands with mandatory permission prompts (GitHub Copilot-style)
+- **Auto Testing** - Automatically detects and runs tests after completing tasks
+- **Codebase Intelligence** - Scans and understands project structure for accurate file editing
+- **Interactive Mode** - Continuous conversation loop for iterative development
+- **Beautiful CLI** - Clean interface with progress indicators and status updates
+
+### Advanced Features
+
+- **Codebase Scanner** - Automatic project awareness with 1-minute cache
+- **Multi-Framework Support** - Works with Node.js, Python, Go, Rust, Java projects
+- **Environment Configuration** - Flexible backend configuration via environment variables
+- **Safety First** - Permission prompts for all destructive operations
+- **Dual Architecture** - Python backend for AI, Node.js frontend for file operations
+
+---
+
+## Installation
 
 ### Prerequisites
 
@@ -41,7 +66,7 @@ npm link
 
 2. Install Python dependencies:
 ```bash
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 ```
 
 3. Create `.env` file with your API keys:
@@ -51,22 +76,26 @@ GITHUB_TOKEN=your_github_token_here
 MISTRAL_API_KEY=your_mistral_key_here
 
 # Optional: customize backend
-MISTRAL_ENDPOINT=https://models.github.ai/inference
-MISTRAL_MODEL=mistral-ai/Mistral-Large-2411
+MISTRAL_ENDPOINT=https://models.inference.ai.azure.com
+MISTRAL_MODEL=mistral-large-2411
 CODERRR_BACKEND=http://localhost:5000
+TIMEOUT_MS=120000
 ```
 
 4. Start the backend server:
 ```bash
-python -m uvicorn main:app --reload --port 8000
+cd backend
+uvicorn main:app --reload --port 5000
 ```
 
-Or use npm script:
+Or from root directory:
 ```bash
 npm run start:backend
 ```
 
-## 📖 Usage
+---
+
+## Usage
 
 ### Interactive Mode (Default)
 
@@ -96,7 +125,9 @@ coderrr exec "Create a FastAPI endpoint for user authentication"
 - `-d, --dir <path>` - Working directory (default: current directory)
 - `--no-auto-test` - Disable automatic test running
 
-## 🎯 Example Commands
+---
+
+## Example Commands
 
 ```bash
 # Interactive mode
@@ -115,13 +146,15 @@ coderrr exec "Fix the database connection timeout issue"
 coderrr exec "Add unit tests for the user service"
 
 # Custom backend
-coderrr start --backend http://my-backend:8000
+coderrr start --backend http://my-backend:5000
 
 # Different working directory
 coderrr start --dir /path/to/project
 ```
 
-## 🏗️ How It Works
+---
+
+## How It Works
 
 1. **User Input** - You provide a coding task or request
 2. **AI Analysis** - The backend LLM analyzes and creates a structured plan
@@ -130,26 +163,46 @@ coderrr start --dir /path/to/project
    - File operations (create, update, patch, delete)
    - Command execution (with permission prompts)
 5. **Testing** - Automatically runs tests if a test framework is detected
-6. **Completion** - Shows summary and stats
+6. **Completion** - Shows summary and execution statistics
 
-## 🛠️ Architecture
+---
+
+## Architecture
 
 ```
 Coderrr/
 ├── bin/
-│   └── coderrr.js           # CLI entry point
+│   ├── coderrr.js           # Modern CLI (commander-based)
+│   └── coderrr-cli.js       # Legacy TUI (blessed-based)
 ├── src/
-│   ├── agent.js             # Core agent logic
-│   ├── fileOps.js           # File operations
-│   ├── executor.js          # Command executor
-│   ├── todoManager.js       # TODO tracking
-│   └── ui.js                # UI utilities
-├── main.py                  # FastAPI backend
+│   ├── agent.js             # Core agent logic & orchestration
+│   ├── fileOps.js           # File operations handler
+│   ├── executor.js          # Command executor with permissions
+│   ├── todoManager.js       # TODO tracking & visualization
+│   ├── codebaseScanner.js   # Project structure scanner
+│   └── ui.js                # UI utilities & components
+├── backend/
+│   ├── main.py              # FastAPI backend server
+│   └── requirements.txt     # Python dependencies
+├── test/                    # Test suite
+├── docs/                    # Documentation
+├── examples/                # Usage examples
+├── .github/                 # CI/CD workflows
 ├── package.json
-└── requirements.txt
+└── .env                     # Environment configuration
 ```
 
-## � Codebase Awareness
+### Backend (Python/FastAPI)
+
+Handles AI model communication, request processing, and JSON schema enforcement. Runs on port 5000 by default.
+
+### Frontend (Node.js)
+
+Manages user interaction, file operations, command execution, and project scanning. Provides both CLI and TUI interfaces.
+
+---
+
+## Codebase Intelligence
 
 Coderrr includes an intelligent **Codebase Scanner** that:
 
@@ -161,16 +214,21 @@ Coderrr includes an intelligent **Codebase Scanner** that:
 
 This means when you ask to "edit the agent file", it knows you mean `src/agent.js` not `agent.py` or `agentController.js`.
 
-[Read more about Codebase Scanner](./CODEBASE_SCANNER.md)
+**Learn more:** See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for detailed architecture documentation.
 
-## �🔒 Safety Features
+---
+
+## Safety Features
 
 - **Permission Prompts** - All commands require user confirmation before execution
 - **Diff Preview** - See changes before files are modified
-- **Step-by-step** - Each action is executed individually with feedback
+- **Step-by-step Execution** - Each action is executed individually with feedback
 - **Error Handling** - Graceful error handling with options to continue or stop
+- **Git-Friendly** - Works best in Git repositories for easy rollback
 
-## 🧪 Supported Test Frameworks
+---
+
+## Supported Test Frameworks
 
 Coderrr automatically detects and runs tests for:
 
@@ -180,15 +238,39 @@ Coderrr automatically detects and runs tests for:
 - **Rust** - cargo test
 - **Java** - Maven (mvn test) or Gradle (gradle test)
 
-## 🤝 Contributing
+---
 
-Contributions are welcome! Feel free to submit issues and pull requests.
+## Contributing
 
-## 📄 License
+Contributions are welcome! Please read our [Contributing Guidelines](./CONTRIBUTING.md) before submitting pull requests.
 
-MIT License - see LICENSE file for details
+### Branch Workflow
 
-## 🙏 Acknowledgments
+- `feature/*` → `dev` → `main`
+- Direct feature to main PRs are blocked by CI
+- All tests run on PRs to dev or main
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed development setup and guidelines.
+
+---
+
+## Documentation
+
+- [Architecture](./docs/ARCHITECTURE.md) - System design and data flow
+- [API Reference](./docs/API.md) - Complete API documentation
+- [FAQ](./docs/FAQ.md) - Frequently asked questions
+- [Deployment](./docs/DEPLOYMENT.md) - Production deployment guide
+- [Examples](./examples/) - Usage examples and tutorials
+
+---
+
+## License
+
+MIT License - see [LICENSE](./LICENSE) file for details.
+
+---
+
+## Acknowledgments
 
 Inspired by:
 - Claude Code (Anthropic)
@@ -197,4 +279,4 @@ Inspired by:
 
 ---
 
-**Made with ❤️ by developers, for developers**
+**Built by developers, for developers**
