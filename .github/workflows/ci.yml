@@ -1,15 +1,42 @@
 name: CI
 
 on:
+  # Run on push only to main (for post-merge verification)
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
+  
+  # Run full tests on PRs to dev and main
   pull_request:
-    branches: [ main, develop ]
+    branches: [ dev, main ]
+    types: [ opened, synchronize, reopened ]
 
 jobs:
+  # Enforce proper workflow: feature -> dev -> main
+  check-branch-workflow:
+    name: Validate Branch Workflow
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Block direct feature to main PRs
+        if: |
+          github.event.pull_request.base.ref == 'main' && 
+          !startsWith(github.event.pull_request.head.ref, 'dev')
+        run: |
+          echo "::error::Direct PRs from feature branches to main are not allowed!"
+          echo "::error::Please follow the workflow: feature -> dev -> main"
+          echo "::error::1. Create PR from your feature branch to 'dev'"
+          echo "::error::2. After merge to dev, create PR from 'dev' to 'main'"
+          exit 1
+      
+      - name: Workflow validation passed
+        run: echo "✅ Branch workflow is valid"
+
   test-node:
     name: Test Node.js Components
     runs-on: ${{ matrix.os }}
+    if: github.event_name == 'pull_request'
+    needs: check-branch-workflow
     
     strategy:
       matrix:
@@ -35,6 +62,7 @@ jobs:
         run: npm test --if-present
         env:
           CODERRR_BACKEND: http://localhost:5000
+          NODE_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
       
       - name: Test CLI installation
         run: npm link
@@ -45,6 +73,8 @@ jobs:
   test-python:
     name: Test Python Backend
     runs-on: ${{ matrix.os }}
+    if: github.event_name == 'pull_request'
+    needs: check-branch-workflow
     
     strategy:
       matrix:
@@ -73,11 +103,14 @@ jobs:
       - name: Test backend startup
         run: |
           python -c "import main; print('Backend imports successfully')"
+        env:
+          PYTHON_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
 
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
-    needs: [test-node, test-python]
+    if: github.event_name == 'pull_request'
+    needs: [check-branch-workflow, test-node, test-python]
     
     steps:
       - uses: actions/checkout@v3
@@ -107,6 +140,7 @@ jobs:
           echo "MISTRAL_MODEL=mistral-large-2411" >> .env
           echo "CODERRR_BACKEND=http://localhost:5000" >> .env
           echo "TIMEOUT_MS=120000" >> .env
+          echo "NODE_ENV=${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}" >> .env
       
       - name: Start backend
         run: |
@@ -120,6 +154,7 @@ jobs:
           node test/test-agent-scanner.js
         env:
           CODERRR_BACKEND: http://localhost:5000
+          NODE_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
       
       - name: Stop backend
         if: always()
@@ -128,6 +163,8 @@ jobs:
   lint:
     name: Lint Check
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: check-branch-workflow
     
     steps:
       - uses: actions/checkout@v3
@@ -151,6 +188,8 @@ jobs:
   security:
     name: Security Audit
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: check-branch-workflow
     
     steps:
       - uses: actions/checkout@v3
@@ -175,3 +214,44 @@ jobs:
       - name: Run Python safety check
         run: safety check -r requirements.txt
         continue-on-error: true
+
+  # Lightweight post-merge verification on main
+  post-merge-check:
+    name: Post-Merge Verification
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Quick smoke test
+        run: |
+          node -e "console.log('✅ Node.js installation verified')"
+          python -c "import main; print('✅ Python backend verified')"
+      
+      - name: Test CLI
+        run: |
+          npm link
+          coderrr --help
+      
+      - name: Notify success
+        run: |
+          echo "✅ Post-merge verification passed on main branch"
+          echo "🎉 Production deployment ready"
