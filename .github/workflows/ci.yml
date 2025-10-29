@@ -1,0 +1,177 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-node:
+    name: Test Node.js Components
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: [16.x, 18.x, 20.x]
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run linter
+        run: npm run lint --if-present
+      
+      - name: Run tests
+        run: npm test --if-present
+        env:
+          CODERRR_BACKEND: http://localhost:5000
+      
+      - name: Test CLI installation
+        run: npm link
+      
+      - name: Test CLI help
+        run: coderrr --help
+
+  test-python:
+    name: Test Python Backend
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run Python linter
+        run: |
+          pip install flake8
+          flake8 main.py --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 main.py --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      
+      - name: Test backend startup
+        run: |
+          python -c "import main; print('Backend imports successfully')"
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [test-node, test-python]
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.x'
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Node dependencies
+        run: npm ci
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Create test environment file
+        run: |
+          echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" > .env
+          echo "MISTRAL_ENDPOINT=https://models.inference.ai.azure.com" >> .env
+          echo "MISTRAL_MODEL=mistral-large-2411" >> .env
+          echo "CODERRR_BACKEND=http://localhost:5000" >> .env
+          echo "TIMEOUT_MS=120000" >> .env
+      
+      - name: Start backend
+        run: |
+          uvicorn main:app --host 0.0.0.0 --port 5000 &
+          sleep 5
+      
+      - name: Run integration tests
+        run: |
+          node test/test-connection.js
+          node test/test-scanner.js
+          node test/test-agent-scanner.js
+        env:
+          CODERRR_BACKEND: http://localhost:5000
+      
+      - name: Stop backend
+        if: always()
+        run: pkill -f uvicorn || true
+
+  lint:
+    name: Lint Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.x'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Run ESLint
+        run: npm run lint --if-present
+        continue-on-error: true
+      
+      - name: Check code formatting
+        run: npm run format:check --if-present
+        continue-on-error: true
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.x'
+      
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install safety
+        run: pip install safety
+      
+      - name: Run Python safety check
+        run: safety check -r requirements.txt
+        continue-on-error: true

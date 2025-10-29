@@ -1,0 +1,68 @@
+{
+  "name": "coderrr",
+  "version": "1.0.0",
+  "description": "AI-powered coding agent that understands natural language requests and autonomously creates, modifies, and manages code across your projects",
+  "main": "bin/coderrr.js",
+  "bin": {
+    "coderrr": "./bin/coderrr.js"
+  },
+  "scripts": {
+    "start": "node ./bin/coderrr.js",
+    "start:backend": "python -m uvicorn main:app --reload --port 5000",
+    "link": "npm link",
+    "test": "echo \"Run your tests here\" && exit 0"
+  },
+  "keywords": [
+    "ai",
+    "coding-agent",
+    "cli",
+    "automation",
+    "code-generation",
+    "mistral-ai",
+    "github-models",
+    "developer-tools",
+    "natural-language",
+    "code-assistant",
+    "fastapi",
+    "nodejs",
+    "python"
+  ],
+  "author": "Coderrr Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/coderrr.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/coderrr/issues"
+  },
+  "homepage": "https://github.com/yourusername/coderrr#readme",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=7.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "dependencies": {
+    "axios": "^1.6.0",
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "inquirer": "^8.2.5",
+    "ora": "^5.4.1",
+    "dotenv": "^16.1.4",
+    "diff": "^5.1.0"
+  },
+  "devDependencies": {},
+  "files": [
+    "bin/",
+    "src/",
+    "main.py",
+    "requirements.txt",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ]
+}
