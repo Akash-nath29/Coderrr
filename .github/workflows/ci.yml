@@ -92,7 +92,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r backend/requirements.txt
       
       - name: Run Python linter
         run: |
@@ -131,7 +131,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r backend/requirements.txt
       
       - name: Create test environment file
         run: |
@@ -212,7 +212,7 @@ jobs:
         run: pip install safety
       
       - name: Run Python safety check
-        run: safety check -r requirements.txt
+        run: safety check -r backend/requirements.txt
         continue-on-error: true
 
   # Lightweight post-merge verification on main
@@ -239,7 +239,7 @@ jobs:
         run: |
           npm ci
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r backend/requirements.txt
       
       - name: Quick smoke test
         run: |
