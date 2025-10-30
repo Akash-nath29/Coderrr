@@ -4,7 +4,7 @@
   "description": "AI-powered coding agent that understands natural language requests and autonomously creates, modifies, and manages code across your projects",
   "main": "bin/coderrr.js",
   "bin": {
-    "coderrr": "./bin/coderrr.js"
+    "coderrr": "bin/coderrr.js"
   },
   "scripts": {
     "start": "node ./bin/coderrr.js",
@@ -48,7 +48,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Akash-nath29/Coderrr.git"
+    "url": "git+https://github.com/Akash-nath29/Coderrr.git"
   },
   "bugs": {
     "url": "https://github.com/Akash-nath29/Coderrr/issues"
