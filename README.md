@@ -21,6 +21,11 @@ Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable pl
 
 ---
 
+## See Coderrr in Action
+![coderrr_output](https://github.com/user-attachments/assets/e3172bc8-6b42-42b9-aef1-39ebdd42153f)
+
+---
+
 ## Features
 
 ### Core Capabilities
