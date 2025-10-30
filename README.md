@@ -1,5 +1,11 @@
 # Coderrr - AI Coding Agent CLI
 
+[![npm version](https://badge.fury.io/js/coderrr-cli.svg)](https://www.npmjs.com/package/coderrr-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen)](https://nodejs.org/)
+[![GitHub issues](https://img.shields.io/github/issues/Akash-nath29/Coderrr)](https://github.com/Akash-nath29/Coderrr/issues)
+[![GitHub stars](https://img.shields.io/github/stars/Akash-nath29/Coderrr)](https://github.com/Akash-nath29/Coderrr/stargazers)
+
 ```
    ██████╗ ██████╗ ██████╗ ███████╗██████╗ ██████╗ ██████╗ 
   ██╔════╝██╔═══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔══██╗
@@ -22,6 +28,7 @@ Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable pl
 - **Task Analysis** - Breaks down complex requests into structured, actionable TODO items
 - **File Operations** - Create, update, patch, delete, and read files with automatic directory creation
 - **Command Execution** - Runs shell commands with mandatory permission prompts (GitHub Copilot-style)
+- **Self-Healing** - Automatically retries failed steps with AI-generated fixes
 - **Auto Testing** - Automatically detects and runs tests after completing tasks
 - **Codebase Intelligence** - Scans and understands project structure for accurate file editing
 - **Interactive Mode** - Continuous conversation loop for iterative development
@@ -39,69 +46,82 @@ Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable pl
 
 ## Installation
 
-### Prerequisites
-
-- Node.js 16+ and npm
-- Python 3.8+ (for the backend)
-
-### Install globally via npm
+### Quick Start (Zero Config!)
 
 ```bash
-npm install -g
+npm install -g coderrr-cli
 ```
 
-Or link for development:
+That's it! The CLI comes pre-configured with a hosted backend.
+
+### Usage
+
+Navigate to any folder and start coding:
 
 ```bash
-npm install
-npm link
-```
-
-### Set up the backend
-
-1. Activate Python virtual environment:
-```powershell
-.\env\Scripts\Activate.ps1
-```
-
-2. Install Python dependencies:
-```bash
-pip install -r backend/requirements.txt
-```
-
-3. Create `.env` file with your API keys:
-```env
-GITHUB_TOKEN=your_github_token_here
-# OR
-MISTRAL_API_KEY=your_mistral_key_here
-
-# Optional: customize backend
-MISTRAL_ENDPOINT=https://models.inference.ai.azure.com
-MISTRAL_MODEL=mistral-large-2411
-CODERRR_BACKEND=http://localhost:5000
-TIMEOUT_MS=120000
-```
-
-4. Start the backend server:
-```bash
-cd backend
-uvicorn main:app --reload --port 5000
-```
-
-Or from root directory:
-```bash
-npm run start:backend
+cd my-project
+coderrr
 ```
 
 ---
 
-## Usage
+## Advanced Configuration (Optional)
+
+By default, Coderrr uses our hosted backend at `https://coderrr-backend.vercel.app`.
+
+If you want to use a custom backend (self-hosted or different provider), you have several options:
+
+### Option 1: User Config File (Recommended)
+
+Create `~/.coderrr/.env`:
+
+**Windows:**
+```powershell
+mkdir $HOME\.coderrr
+echo CODERRR_BACKEND=http://localhost:5000 > $HOME\.coderrr\.env
+```
+
+**Linux/Mac:**
+```bash
+mkdir -p ~/.coderrr
+echo "CODERRR_BACKEND=http://localhost:5000" > ~/.coderrr/.env
+```
+
+### Option 2: System Environment Variable
+
+**Windows:**
+```powershell
+setx CODERRR_BACKEND "http://localhost:5000"
+```
+
+**Linux/Mac:**
+```bash
+export CODERRR_BACKEND="http://localhost:5000"
+# Add to ~/.bashrc or ~/.zshrc for persistence
+```
+
+### Option 3: Command Line Flag
+
+```bash
+coderrr --backend http://localhost:5000
+```
+
+---
+
+## Self-Hosting Backend (Advanced)
+
+Most users won't need this! But if you want to run your own backend for privacy or customization, see our [Self-Hosting Guide](./docs/SELF_HOSTING.md).
+
+---
+
+## Usage Examples
 
 ### Interactive Mode (Default)
 
-Start the agent and chat with it:
+Navigate to your project and start the agent:
 
 ```bash
+cd my-project
 coderrr
 ```
 
@@ -121,9 +141,15 @@ coderrr exec "Create a FastAPI endpoint for user authentication"
 
 ### Options
 
-- `-b, --backend <url>` - Backend URL (reads from CODERRR_BACKEND env variable)
+- `-b, --backend <url>` - Override the default backend URL
 - `-d, --dir <path>` - Working directory (default: current directory)
 - `--no-auto-test` - Disable automatic test running
+- `--no-auto-retry` - Disable automatic retry/self-healing on errors
+- `--max-retries <number>` - Maximum retry attempts per failed step (default: 2)
+
+**Default Backend:** Uses hosted backend at `https://coderrr-backend.vercel.app`
+
+**Self-Healing:** When a step fails, Coderrr automatically analyzes the error and attempts to fix it up to 2 times before giving up.
 
 ---
 

@@ -13,7 +13,10 @@ const CodebaseScanner = require('./codebaseScanner');
 
 class Agent {
   constructor(options = {}) {
-    this.backendUrl = options.backendUrl || process.env.CODERRR_BACKEND;
+    // Default to hosted backend, can be overridden via options or env var
+    const DEFAULT_BACKEND = 'https://coderrr-backend.vercel.app';
+    this.backendUrl = options.backendUrl || process.env.CODERRR_BACKEND || DEFAULT_BACKEND;
+    
     this.workingDir = options.workingDir || process.cwd();
     this.fileOps = new FileOperations(this.workingDir);
     this.executor = new CommandExecutor();
@@ -21,6 +24,8 @@ class Agent {
     this.scanner = new CodebaseScanner(this.workingDir);
     this.conversationHistory = [];
     this.autoTest = options.autoTest !== false; // Default to true
+    this.autoRetry = options.autoRetry !== false; // Default to true - self-healing on errors
+    this.maxRetries = options.maxRetries || 2; // Default 2 retries per step
     this.codebaseContext = null; // Cached codebase structure
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
   }
@@ -128,6 +133,9 @@ When editing existing files, use EXACT filenames from the list above. When creat
   /**
    * Execute a plan from the AI
    */
+  /**
+   * Execute a plan with self-healing retry mechanism
+   */
   async executePlan(plan) {
     if (!Array.isArray(plan) || plan.length === 0) {
       ui.warning('No plan to execute');
@@ -147,32 +155,85 @@ When editing existing files, use EXACT filenames from the list above. When creat
 
       ui.info(`Step ${i + 1}/${plan.length}: ${step.summary || step.action}`);
 
-      try {
-        if (step.action === 'run_command') {
-          // Execute command with permission
-          const result = await this.executor.execute(step.command, {
-            requirePermission: true,
-            cwd: this.workingDir
-          });
+      let retryCount = 0;
+      let stepSuccess = false;
 
-          if (!result.success && !result.cancelled) {
-            ui.error(`Command failed, stopping execution`);
-            break;
+      while (!stepSuccess && retryCount <= this.maxRetries) {
+        try {
+          if (step.action === 'run_command') {
+            // Execute command with permission
+            const result = await this.executor.execute(step.command, {
+              requirePermission: true,
+              cwd: this.workingDir
+            });
+
+            if (!result.success && !result.cancelled) {
+              // Command failed - attempt self-healing if enabled
+              if (this.autoRetry && retryCount < this.maxRetries) {
+                ui.warning(`Command failed (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
+                ui.info('🔧 Analyzing error and generating fix...');
+                
+                const fixedStep = await this.selfHeal(step, result.error || result.output, retryCount);
+                
+                if (fixedStep) {
+                  step.command = fixedStep.command;
+                  step.summary = fixedStep.summary || step.summary;
+                  retryCount++;
+                  continue; // Retry with fixed command
+                } else {
+                  ui.error('Could not generate automatic fix');
+                  break;
+                }
+              } else {
+                ui.error(`Command failed${this.autoRetry ? ` after ${this.maxRetries + 1} attempts` : ''}, stopping execution`);
+                break;
+              }
+            }
+
+            if (result.cancelled) {
+              ui.warning('Command cancelled by user');
+              stepSuccess = true; // Consider cancelled as completed
+            } else {
+              stepSuccess = true;
+            }
+          } else {
+            // File operation
+            await this.fileOps.execute(step);
+            stepSuccess = true;
           }
 
-          if (result.cancelled) {
-            ui.warning('Command cancelled by user');
-            // Continue with next step
+          if (stepSuccess) {
+            this.todoManager.complete(i);
           }
-        } else {
-          // File operation
-          await this.fileOps.execute(step);
+        } catch (error) {
+          if (this.autoRetry && retryCount < this.maxRetries) {
+            ui.warning(`Step failed: ${error.message} (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
+            ui.info('🔧 Analyzing error and generating fix...');
+            
+            const fixedStep = await this.selfHeal(step, error.message, retryCount);
+            
+            if (fixedStep) {
+              // Update step with fixed version
+              Object.assign(step, fixedStep);
+              retryCount++;
+              continue; // Retry with fixed step
+            } else {
+              ui.error('Could not generate automatic fix');
+              break;
+            }
+          } else {
+            ui.error(`Failed to execute step${this.autoRetry ? ` after ${this.maxRetries + 1} attempts` : ''}: ${error.message}`);
+            const shouldContinue = await ui.confirm('Continue with remaining steps?', false);
+            if (!shouldContinue) {
+              break;
+            }
+          }
         }
+      }
 
-        this.todoManager.complete(i);
-      } catch (error) {
-        ui.error(`Failed to execute step: ${error.message}`);
-        const shouldContinue = await ui.confirm('Continue with remaining steps?', false);
+      // If step still failed after retries, ask user what to do
+      if (!stepSuccess) {
+        const shouldContinue = await ui.confirm('Step failed. Continue with remaining steps?', false);
         if (!shouldContinue) {
           break;
         }
@@ -189,6 +250,58 @@ When editing existing files, use EXACT filenames from the list above. When creat
     }
 
     return stats;
+  }
+
+  /**
+   * Self-healing: Ask AI to fix a failed step
+   */
+  async selfHeal(failedStep, errorMessage, attemptNumber) {
+    try {
+      const healingPrompt = `The following step failed with an error. Please analyze the error and provide a fixed version of the step.
+
+FAILED STEP:
+Action: ${failedStep.action}
+${failedStep.command ? `Command: ${failedStep.command}` : ''}
+${failedStep.path ? `Path: ${failedStep.path}` : ''}
+Summary: ${failedStep.summary}
+
+ERROR:
+${errorMessage}
+
+CONTEXT:
+- Working directory: ${this.workingDir}
+- Attempt number: ${attemptNumber + 1}
+- Available files: ${this.codebaseContext ? this.codebaseContext.files.map(f => f.path).slice(0, 10).join(', ') : 'Unknown'}
+
+Please provide ONLY a JSON object with the fixed step in this exact format:
+{
+  "explanation": "Brief explanation of what went wrong and how you fixed it",
+  "fixed_step": {
+    "action": "${failedStep.action}",
+    "command": "corrected command if action is run_command",
+    "path": "corrected path if file operation",
+    "content": "corrected content if needed",
+    "summary": "updated summary"
+  }
+}`;
+
+      ui.info('🔧 Requesting fix from AI...');
+      const response = await this.chat(healingPrompt);
+      const parsed = this.parseJsonResponse(response);
+
+      if (parsed.explanation) {
+        ui.info(`💡 Fix: ${parsed.explanation}`);
+      }
+
+      if (parsed.fixed_step) {
+        return parsed.fixed_step;
+      }
+
+      return null;
+    } catch (error) {
+      ui.warning(`Self-healing failed: ${error.message}`);
+      return null;
+    }
   }
 
   /**

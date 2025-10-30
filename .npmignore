@@ -1,0 +1,55 @@
+# NPM Ignore - Exclude files from npm package
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.client.example
+
+# Development files
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+node_modules/
+
+# Backend (users don't need Python backend for CLI-only use)
+backend/
+main.py
+requirements.txt
+
+# Git and CI
+.git/
+.github/
+.gitignore
+.gitattributes
+
+# Documentation (keep only essential)
+CONTRIBUTING.md
+SETUP.md
+docs/
+examples/
+
+# Tests
+test/
+*.test.js
+*.spec.js
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+.cache/
+dist/
+build/

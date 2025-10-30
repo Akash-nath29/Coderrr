@@ -1,5 +1,5 @@
 {
-  "name": "coderrr",
+  "name": "coderrr-cli",
   "version": "1.0.0",
   "description": "AI-powered coding agent that understands natural language requests and autonomously creates, modifies, and manages code across your projects",
   "main": "bin/coderrr.js",
@@ -14,8 +14,10 @@
   },
   "keywords": [
     "ai",
+    "ai-agent",
     "coding-agent",
     "cli",
+    "terminal",
     "automation",
     "code-generation",
     "mistral-ai",
@@ -23,20 +25,39 @@
     "developer-tools",
     "natural-language",
     "code-assistant",
+    "copilot",
+    "ai-coding",
     "fastapi",
     "nodejs",
-    "python"
+    "python",
+    "code-automation",
+    "ai-helper",
+    "productivity"
   ],
-  "author": "Coderrr Contributors",
+  "author": {
+    "name": "Akash Nath",
+    "email": "akash@example.com",
+    "url": "https://github.com/Akash-nath29"
+  },
+  "contributors": [
+    {
+      "name": "Coderrr Contributors",
+      "url": "https://github.com/Akash-nath29/Coderrr/graphs/contributors"
+    }
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/coderrr.git"
+    "url": "https://github.com/Akash-nath29/Coderrr.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/coderrr/issues"
+    "url": "https://github.com/Akash-nath29/Coderrr/issues"
   },
-  "homepage": "https://github.com/yourusername/coderrr#readme",
+  "homepage": "https://github.com/Akash-nath29/Coderrr#readme",
+  "funding": {
+    "type": "individual",
+    "url": "https://github.com/sponsors/Akash-nath29"
+  },
   "engines": {
     "node": ">=16.0.0",
     "npm": ">=7.0.0"
@@ -59,10 +80,13 @@
   "files": [
     "bin/",
     "src/",
-    "main.py",
-    "requirements.txt",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
-  ]
+    "CHANGELOG.md",
+    ".env.client.example"
+  ],
+  "preferGlobal": true,
+  "publishConfig": {
+    "access": "public"
+  }
 }

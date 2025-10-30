@@ -13,7 +13,7 @@ const { executePlan } = require('../src/executor');
 const { tryExtractJSON } = require('../src/utils');
 require('dotenv').config();
 
-const BACKEND = process.env.CODERRR_BACKEND || 'http://localhost:5000';
+const BACKEND = process.env.CODERRR_BACKEND;
 const TIMEOUT_MS = parseInt(process.env.TIMEOUT_MS || '120000');
 
 // screen
