@@ -35,7 +35,7 @@ const ui = {
    * Display info message
    */
   info(message) {
-    console.log(chalk.blue('ℹ'), message);
+    console.log(chalk.blue('ℹ '), message);
   },
 
   /**
