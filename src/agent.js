@@ -372,6 +372,11 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
       // Try to parse JSON plan
       let plan;
       try {
+        // DEBUG: Show raw response
+        console.log('\n--- DEBUG: Raw Backend Response ---');
+        console.log(response);
+        console.log('--- END DEBUG ---\n');
+        
         const parsed = this.parseJsonResponse(response);
         
         // Show explanation if present
