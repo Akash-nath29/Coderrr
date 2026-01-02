@@ -1,47 +1,15 @@
 import os
-import sys
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 load_dotenv()
 
-
-# Mistral client — try import, with fallback to the repo virtualenv site-packages
-def _import_mistralai_with_fallback():
-    try:
-        from mistralai import Mistral, UserMessage, SystemMessage
-        return Mistral, UserMessage, SystemMessage
-    except Exception as orig_err:
-        # Try common local venv paths relative to the project root
-        base = os.path.dirname(__file__)
-        py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
-        candidates = [
-            os.path.join(base, "env", "Lib", "site-packages"),
-            os.path.join(base, "env", "lib", py_ver, "site-packages"),
-            os.path.join(base, ".venv", "Lib", "site-packages"),
-            os.path.join(base, ".venv", "lib", py_ver, "site-packages"),
-        ]
-
-        for p in candidates:
-            if os.path.isdir(p) and p not in sys.path:
-                sys.path.insert(0, p)
-                try:
-                    from mistralai import Mistral, UserMessage, SystemMessage
-                    return Mistral, UserMessage, SystemMessage
-                except Exception:
-                    # continue trying other candidate paths
-                    pass
-
-        # If we reach here, we couldn't import even after trying local venv paths
-        raise RuntimeError(
-            "mistralai import failed. Install the SDK in the active environment or activate the project's virtualenv. "
-            "On Windows PowerShell run: `env\\Scripts\\Activate.ps1` then `pip install mistralai`. "
-            f"Original error: {orig_err}"
-        )
-
-
-Mistral, UserMessage, SystemMessage = _import_mistralai_with_fallback()
+# Azure AI Inference SDK for GitHub Models
+from azure.ai.inference import ChatCompletionsClient
+from azure.ai.inference.models import SystemMessage, UserMessage
+from azure.core.credentials import AzureKeyCredential
 
 app = FastAPI(title="Coderrr Backend")
 
@@ -53,11 +21,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-TOKEN = os.getenv("GITHUB_TOKEN") or os.getenv("MISTRAL_API_KEY")
-ENDPOINT = os.getenv("MISTRAL_ENDPOINT", "https://models.github.ai/inference")
-MODEL_NAME = os.getenv("MISTRAL_MODEL", "mistral-ai/Mistral-Large-2411")
+# Configuration
+TOKEN = os.getenv("GITHUB_TOKEN")
+ENDPOINT = os.getenv("GITHUB_MODELS_ENDPOINT", "https://models.github.ai/inference")
+MODEL_NAME = os.getenv("GITHUB_MODEL", "openai/gpt-4o")
 
-client = Mistral(api_key=TOKEN, server_url=ENDPOINT)
+# Initialize client
+client = ChatCompletionsClient(
+    endpoint=ENDPOINT,
+    credential=AzureKeyCredential(TOKEN),
+)
 
 
 SYSTEM_INSTRUCTIONS = """
@@ -123,14 +96,18 @@ async def chat(req: Request):
     body = await req.json()
     user_prompt = body.get("prompt", "")
     if not user_prompt:
-        return {"error": "prompt required"}, 400
+        return JSONResponse({"error": "prompt required"}, status_code=400)
 
     system_prompt = SYSTEM_INSTRUCTIONS
     # Append user request asking for a plan in JSON
     user_message = f"User request: {user_prompt}\n\nPlease output a JSON object with explanation and plan as described."
 
     try:
-        response = client.chat.complete(
+        print(f"[DEBUG] Calling model: {MODEL_NAME}")
+        print(f"[DEBUG] Endpoint: {ENDPOINT}")
+        print(f"[DEBUG] Token present: {bool(TOKEN)}")
+        
+        response = client.complete(
             model=MODEL_NAME,
             messages=[
                 SystemMessage(content=system_prompt),
@@ -140,14 +117,20 @@ async def chat(req: Request):
             max_tokens=int(body.get("max_tokens", 1500)),
             top_p=float(body.get("top_p", 1.0))
         )
+        
         # Extract model text
         text = ""
         try:
             text = response.choices[0].message.content
-        except Exception:
+            print(f"[DEBUG] Got response, length: {len(text)} chars")
+        except Exception as extract_err:
+            print(f"[DEBUG] Failed to extract response: {extract_err}")
             text = str(response)
 
         # Return raw text and let CLI try to parse JSON
         return {"response": text}
     except Exception as e:
-        return {"error": "model request failed", "details": str(e)}, 500
+        print(f"[ERROR] Model request failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": "model request failed", "details": str(e)}, status_code=500)
