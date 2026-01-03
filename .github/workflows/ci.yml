@@ -261,6 +261,8 @@ jobs:
           node -e "console.log('✅ Node.js installation verified')"
           cd backend
           python -c "import main; print('✅ Python backend verified')"
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       
       - name: Test CLI
         run: |
