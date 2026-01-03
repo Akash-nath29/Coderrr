@@ -75,6 +75,13 @@ Response:
 - Caching (1-minute TTL)
 - File search by pattern
 
+#### `gitOps.js` - Git Integration
+- Git repository detection
+- Automatic checkpoint commits before operations
+- Auto-commit successful changes
+- Interactive rollback menu
+- Uncommitted changes detection
+
 #### `ui.js` - User Interface
 - Chalk-based colored output
 - Ora spinners
@@ -413,7 +420,6 @@ Planned improvements:
 - [ ] WebSocket streaming for real-time responses
 - [ ] Plugin system for custom operations
 - [ ] Multi-backend support (OpenAI, Claude)
-- [ ] Git integration for automatic commits
 - [ ] Semantic code search
 - [ ] Dependency analysis
 - [ ] Incremental scanning

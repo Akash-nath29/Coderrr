@@ -36,6 +36,7 @@ Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable pl
 - **Self-Healing** - Automatically retries failed steps with AI-generated fixes
 - **Auto Testing** - Automatically detects and runs tests after completing tasks
 - **Codebase Intelligence** - Scans and understands project structure for accurate file editing
+- **Git Integration** - Automatic checkpoints and commits with easy rollback capability
 - **Interactive Mode** - Continuous conversation loop for iterative development
 - **Beautiful CLI** - Clean interface with progress indicators and status updates
 
@@ -151,10 +152,13 @@ coderrr exec "Create a FastAPI endpoint for user authentication"
 - `--no-auto-test` - Disable automatic test running
 - `--no-auto-retry` - Disable automatic retry/self-healing on errors
 - `--max-retries <number>` - Maximum retry attempts per failed step (default: 2)
+- `--auto-commit` - Enable git checkpoints and auto-commit (opt-in)
 
 **Default Backend:** Uses hosted backend at `https://coderrr-backend.vercel.app`
 
 **Self-Healing:** When a step fails, Coderrr automatically analyzes the error and attempts to fix it up to 2 times before giving up.
+
+**Git Integration:** With `--auto-commit` flag, Coderrr creates safety checkpoints before operations and auto-commits successful changes. Use `coderrr rollback` to undo changes.
 
 ---
 
@@ -175,6 +179,12 @@ coderrr exec "Fix the database connection timeout issue"
 
 # Write tests
 coderrr exec "Add unit tests for the user service"
+
+# With git safety (auto-commit enabled)
+coderrr --auto-commit exec "Create user authentication system"
+
+# Rollback changes
+coderrr rollback
 
 # Custom backend
 coderrr start --backend http://my-backend:5000
