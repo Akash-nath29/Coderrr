@@ -137,9 +137,9 @@ jobs:
       
       - name: Create test environment file
         run: |
-          echo "GITHUB_TOKEN=${{ secrets.PAT_TOKEN }}" > .env
-          echo "GITHUB_MODELS_ENDPOINT=https://models.github.ai/inference" >> .env
-          echo "GITHUB_MODEL=openai/gpt-5" >> .env
+          echo "GITHUB_TOKEN=${{ secrets.PAT_TOKEN }}" > backend/.env
+          echo "GITHUB_MODELS_ENDPOINT=https://models.github.ai/inference" >> backend/.env
+          echo "GITHUB_MODEL=openai/gpt-5" >> backend/.env
           echo "CODERRR_BACKEND=http://localhost:8000" >> .env
           echo "TIMEOUT_MS=120000" >> .env
           echo "NODE_ENV=${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}" >> .env
@@ -148,7 +148,9 @@ jobs:
         run: |
           cd backend
           uvicorn main:app --host 0.0.0.0 --port 8000 &
-          sleep 5
+          sleep 10
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       
       - name: Run integration tests
         run: |
