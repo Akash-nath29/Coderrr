@@ -197,13 +197,13 @@ git reset --hard HEAD~1
 
 1. **Is the backend running?**
    ```bash
-   curl http://localhost:5000
+   curl http://localhost:8000
    # Should return: {"message":"Coderrr backend is running 🚀",...}
    ```
 
 2. **Is the URL correct in .env?**
    ```env
-   CODERRR_BACKEND=http://localhost:5000
+   CODERRR_BACKEND=http://localhost:8000
    ```
 
 3. **Is the port available?**

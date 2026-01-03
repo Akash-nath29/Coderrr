@@ -83,32 +83,32 @@ Create `~/.coderrr/.env`:
 **Windows:**
 ```powershell
 mkdir $HOME\.coderrr
-echo CODERRR_BACKEND=http://localhost:5000 > $HOME\.coderrr\.env
+echo CODERRR_BACKEND=http://localhost:8000 > $HOME\.coderrr\.env
 ```
 
 **Linux/Mac:**
 ```bash
 mkdir -p ~/.coderrr
-echo "CODERRR_BACKEND=http://localhost:5000" > ~/.coderrr/.env
+echo "CODERRR_BACKEND=http://localhost:8000" > ~/.coderrr/.env
 ```
 
 ### Option 2: System Environment Variable
 
 **Windows:**
 ```powershell
-setx CODERRR_BACKEND "http://localhost:5000"
+setx CODERRR_BACKEND "http://localhost:8000"
 ```
 
 **Linux/Mac:**
 ```bash
-export CODERRR_BACKEND="http://localhost:5000"
+export CODERRR_BACKEND="http://localhost:8000"
 # Add to ~/.bashrc or ~/.zshrc for persistence
 ```
 
 ### Option 3: Command Line Flag
 
 ```bash
-coderrr --backend http://localhost:5000
+coderrr --backend http://localhost:8000
 ```
 
 ---

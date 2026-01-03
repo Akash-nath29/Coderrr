@@ -4,7 +4,7 @@
 
 ### Base URL
 
-Default: `http://localhost:5000`
+Default: `http://localhost:8000`
 
 Configurable via `CODERRR_BACKEND` environment variable.
 
@@ -62,7 +62,7 @@ Send a chat request to the AI backend.
 
 **Example Request**:
 ```bash
-curl -X POST http://localhost:5000/chat \
+curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "Create a simple Node.js HTTP server",
@@ -133,7 +133,7 @@ const Agent = require('./src/agent');
 
 const agent = new Agent({
   workingDir: '/path/to/project',  // Optional: defaults to process.cwd()
-  backendUrl: 'http://localhost:5000'  // Optional: defaults to CODERRR_BACKEND env var
+  backendUrl: 'http://localhost:8000'  // Optional: defaults to CODERRR_BACKEND env var
 });
 ```
 
@@ -743,7 +743,7 @@ coderrr start
 
 1. **Always check backend health** before requests:
    ```bash
-   curl http://localhost:5000
+   curl http://localhost:8000
    ```
 
 2. **Use appropriate temperature**:
