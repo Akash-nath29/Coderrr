@@ -105,6 +105,7 @@ jobs:
           cd backend
           python -c "import main; print('Backend imports successfully')"
         env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
           PYTHON_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
 
   integration:
