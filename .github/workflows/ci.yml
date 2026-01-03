@@ -122,8 +122,26 @@ jobs:
         with:
           node-version: '18.x'
       
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
       - name: Install Node dependencies
         run: npm ci
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+      
+      - name: Start backend
+        run: |
+          cd backend
+          uvicorn main:app --host 0.0.0.0 --port ${{ secrets.PORT_NUMBER }} &
+          sleep 10
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       
       - name: Run integration tests
         run: |
@@ -133,6 +151,10 @@ jobs:
         env:
           CODERRR_BACKEND: http://localhost:${{ secrets.PORT_NUMBER }}
           NODE_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
+      
+      - name: Stop backend
+        if: always()
+        run: pkill -f uvicorn || true
 
   lint:
     name: Lint Check
