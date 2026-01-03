@@ -61,7 +61,7 @@ jobs:
       - name: Run tests
         run: npm test --if-present
         env:
-          CODERRR_BACKEND: http://localhost:${{ secrets.PORT_NUMBER }}
+          CODERRR_BACKEND: http://127.0.0.1:${{ secrets.PORT_NUMBER }}
           NODE_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
       
       - name: Test CLI installation
@@ -138,8 +138,27 @@ jobs:
       - name: Start backend
         run: |
           cd backend
-          uvicorn main:app --host 0.0.0.0 --port ${{ secrets.PORT_NUMBER }} &
-          sleep 10
+          echo "Starting backend on port ${{ secrets.PORT_NUMBER }}..."
+          uvicorn main:app --host 0.0.0.0 --port ${{ secrets.PORT_NUMBER }} > uvicorn.log 2>&1 &
+          BACKEND_PID=$!
+          echo "Backend PID: $BACKEND_PID"
+          sleep 5
+          
+          # Check if backend is running
+          if ! kill -0 $BACKEND_PID 2>/dev/null; then
+            echo "❌ Backend failed to start! Logs:"
+            cat uvicorn.log
+            exit 1
+          fi
+          
+          # Health check
+          echo "Checking backend health..."
+          curl -v http://127.0.0.1:${{ secrets.PORT_NUMBER }}/ || {
+            echo "❌ Backend not responding! Logs:"
+            cat uvicorn.log
+            exit 1
+          }
+          echo "✅ Backend is running!"
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       
@@ -149,7 +168,7 @@ jobs:
           node test/test-scanner.js
           node test/test-agent-scanner.js
         env:
-          CODERRR_BACKEND: http://localhost:${{ secrets.PORT_NUMBER }}
+          CODERRR_BACKEND: http://127.0.0.1:${{ secrets.PORT_NUMBER }}
           NODE_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
       
       - name: Stop backend
