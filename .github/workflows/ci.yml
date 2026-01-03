@@ -61,7 +61,7 @@ jobs:
       - name: Run tests
         run: npm test --if-present
         env:
-          CODERRR_BACKEND: http://localhost:5000
+          CODERRR_BACKEND: http://localhost:8000
           NODE_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
       
       - name: Test CLI installation
@@ -137,16 +137,16 @@ jobs:
       - name: Create test environment file
         run: |
           echo "GITHUB_TOKEN=${{ secrets.PAT_TOKEN }}" > .env
-          echo "MISTRAL_ENDPOINT=https://models.inference.ai.azure.com" >> .env
-          echo "MISTRAL_MODEL=mistral-large-2411" >> .env
-          echo "CODERRR_BACKEND=http://localhost:5000" >> .env
+          echo "GITHUB_MODELS_ENDPOINT=https://models.github.ai/inference" >> .env
+          echo "GITHUB_MODEL=openai/gpt-5" >> .env
+          echo "CODERRR_BACKEND=http://localhost:8000" >> .env
           echo "TIMEOUT_MS=120000" >> .env
           echo "NODE_ENV=${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}" >> .env
       
       - name: Start backend
         run: |
           cd backend
-          uvicorn main:app --host 0.0.0.0 --port 5000 &
+          uvicorn main:app --host 0.0.0.0 --port 8000 &
           sleep 5
       
       - name: Run integration tests
@@ -155,7 +155,7 @@ jobs:
           node test/test-scanner.js
           node test/test-agent-scanner.js
         env:
-          CODERRR_BACKEND: http://localhost:5000
+          CODERRR_BACKEND: http://localhost:8000
           NODE_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
       
       - name: Stop backend
