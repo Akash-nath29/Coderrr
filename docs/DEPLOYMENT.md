@@ -52,7 +52,7 @@ MISTRAL_API_KEY=your_mistral_key
 # Optional (with defaults)
 MISTRAL_ENDPOINT=https://models.inference.ai.azure.com
 MISTRAL_MODEL=mistral-large-2411
-CODERRR_BACKEND=http://localhost:5000
+CODERRR_BACKEND=http://localhost:8000
 TIMEOUT_MS=120000
 ```
 
@@ -93,7 +93,7 @@ cat > .env << EOF
 GITHUB_TOKEN=${GITHUB_TOKEN}
 MISTRAL_ENDPOINT=https://models.inference.ai.azure.com
 MISTRAL_MODEL=mistral-large-2411
-CODERRR_BACKEND=http://localhost:5000
+CODERRR_BACKEND=http://localhost:8000
 TIMEOUT_MS=120000
 NODE_ENV=production
 EOF
@@ -198,7 +198,7 @@ server {
     limit_req zone=coderrr_limit burst=20 nodelay;
 
     location / {
-        proxy_pass http://localhost:5000;
+        proxy_pass http://localhost:8000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -263,7 +263,7 @@ EXPOSE 5000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000').read()"
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000').read()"
 
 # Start backend
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000", "--workers", "4"]
@@ -285,14 +285,14 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - MISTRAL_ENDPOINT=${MISTRAL_ENDPOINT}
       - MISTRAL_MODEL=${MISTRAL_MODEL}
-      - CODERRR_BACKEND=http://localhost:5000
+      - CODERRR_BACKEND=http://localhost:8000
       - TIMEOUT_MS=120000
     volumes:
       - ./logs:/app/logs
     networks:
       - coderrr-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -493,7 +493,7 @@ docker-compose logs -f
 # Simple health check script
 cat > health-check.sh << 'EOF'
 #!/bin/bash
-BACKEND_URL="http://localhost:5000"
+BACKEND_URL="http://localhost:8000"
 
 if curl -f -s $BACKEND_URL > /dev/null; then
     echo "✅ Backend is healthy"

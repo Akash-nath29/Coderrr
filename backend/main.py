@@ -112,10 +112,7 @@ async def chat(req: Request):
             messages=[
                 SystemMessage(content=system_prompt),
                 UserMessage(content=user_message)
-            ],
-            temperature=float(body.get("temperature", 0.2)),
-            max_tokens=int(body.get("max_tokens", 1500)),
-            top_p=float(body.get("top_p", 1.0))
+            ]
         )
         
         # Extract model text
