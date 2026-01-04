@@ -6,6 +6,7 @@ const FileOperations = require('./fileOps');
 const CommandExecutor = require('./executor').CommandExecutor;
 const TodoManager = require('./todoManager');
 const CodebaseScanner = require('./codebaseScanner');
+const GitOperations = require('./gitOps');
 
 /**
  * Core AI Agent that communicates with backend and executes plans
@@ -22,12 +23,14 @@ class Agent {
     this.executor = new CommandExecutor();
     this.todoManager = new TodoManager();
     this.scanner = new CodebaseScanner(this.workingDir);
+    this.git = new GitOperations(this.workingDir);
     this.conversationHistory = [];
     this.autoTest = options.autoTest !== false; // Default to true
     this.autoRetry = options.autoRetry !== false; // Default to true - self-healing on errors
     this.maxRetries = options.maxRetries || 2; // Default 2 retries per step
     this.codebaseContext = null; // Cached codebase structure
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
+    this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
   }
 
   /**
@@ -178,6 +181,22 @@ When editing existing files, use EXACT filenames from the list above. When creat
     this.todoManager.parseTodos(plan);
     this.todoManager.display();
 
+    // Git pre-execution hook
+    if (this.gitEnabled) {
+      const gitValid = await this.git.validateGitSetup();
+      if (gitValid) {
+        // Check for uncommitted changes
+        const canProceed = await this.git.checkUncommittedChanges();
+        if (!canProceed) {
+          ui.warning('Execution cancelled by user');
+          return;
+        }
+        // Create checkpoint
+        const planDescription = plan[0]?.summary || 'Execute plan';
+        await this.git.createCheckpoint(planDescription);
+      }
+    }
+
     ui.section('Executing Plan');
 
     // Execute each step
@@ -301,6 +320,15 @@ When editing existing files, use EXACT filenames from the list above. When creat
 
     if (stats.pending > 0) {
       ui.warning(`Skipped: ${stats.pending} tasks`);
+    }
+
+    // Git post-execution hook - commit if all successful
+    if (this.gitEnabled && stats.completed === stats.total && stats.total > 0) {
+      const gitValid = await this.git.isGitRepository();
+      if (gitValid) {
+        const planDescription = plan[0]?.summary || 'Completed plan';
+        await this.git.commitChanges(planDescription);
+      }
     }
 
     return stats;
