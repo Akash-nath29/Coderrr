@@ -1,6 +1,7 @@
 const chalk = require('chalk');
 const ora = require('ora');
 const inquirer = require('inquirer');
+const debounce = require('./hooks/useDebounce'); // Import our new utility
 
 /**
  * UI utilities for Coderrr CLI
@@ -93,15 +94,24 @@ const ui = {
   },
 
   /**
-   * Ask user for text input
+   * Ask user for text input with optional debounced processing
+   * Updated for Issue #3 optimization
    */
-  async input(message, defaultValue = '') {
+  async input(message, defaultValue = '', onUpdate = null) {
+    // If an onUpdate callback is provided, we debounce it
+    const debouncedUpdate = onUpdate ? debounce(onUpdate, 400) : null;
+
     const { answer } = await inquirer.prompt([
       {
         type: 'input',
         name: 'answer',
         message,
-        default: defaultValue
+        default: defaultValue,
+        // Inquirer validate can act as a listener for keystrokes in some setups
+        validate: (val) => {
+            if (debouncedUpdate) debouncedUpdate(val);
+            return true;
+        }
       }
     ]);
     return answer;
