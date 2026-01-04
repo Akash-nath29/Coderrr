@@ -3,7 +3,11 @@ const path = require('path');
 const ui = require('./ui');
 
 /**
- * File operations module for Coderrr
+ * File Operations Module for Coderrr
+ *
+ * Provides safe file manipulation operations with automatic directory creation,
+ * path resolution, and comprehensive error handling. All operations are
+ * synchronous to ensure atomicity and predictable behavior.
  */
 
 class FileOperations {
@@ -30,7 +34,12 @@ class FileOperations {
   }
 
   /**
-   * Create a new file
+   * Create a new file with the specified content
+   *
+   * @param {string} filePath - Relative or absolute path to the file to create
+   * @param {string} content - Content to write to the file
+   * @returns {Promise<Object>} Result object with success status and absolute path
+   * @throws {Error} If file already exists or write operation fails
    */
   async createFile(filePath, content) {
     try {

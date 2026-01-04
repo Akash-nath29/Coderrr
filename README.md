@@ -19,6 +19,30 @@
 
 Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable plans, performs file operations, and executes commands with user permission. Built for developers who want automated assistance without sacrificing control.
 
+## Table of Contents
+
+- [See Coderrr in Action](#see-coderrr-in-action)
+- [Features](#features)
+  - [Core Capabilities](#core-capabilities)
+  - [Advanced Features](#advanced-features)
+- [Installation](#installation)
+  - [Quick Start](#quick-start-zero-config)
+  - [Advanced Configuration](#advanced-configuration-optional)
+  - [Self-Hosting Backend](#self-hosting-backend-advanced)
+- [Usage Examples](#usage-examples)
+  - [Interactive Mode](#interactive-mode-default)
+  - [Single Command Mode](#single-command-mode)
+  - [Options](#options)
+  - [Example Commands](#example-commands)
+- [How It Works](#how-it-works)
+- [Architecture](#architecture)
+- [Codebase Intelligence](#codebase-intelligence)
+- [Safety Features](#safety-features)
+- [Supported Test Frameworks](#supported-test-frameworks)
+- [Contributing](#contributing)
+- [Documentation](#documentation)
+- [License](#license)
+
 ---
 
 ## See Coderrr in Action
