@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite for scanner
 - Environment-based backend URL configuration
 - Organized project structure with proper test folder
+- Git integration with auto-commit safety net
+- `--auto-commit` flag for automatic git checkpoints and commits
+- `coderrr rollback` command for reverting Coderrr changes
+- Safety checkpoint system before AI operations
 
 ### Changed
 - Backend URL now centralized in `.env` as `CODERRR_BACKEND`
