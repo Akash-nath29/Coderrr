@@ -13,6 +13,18 @@ const GitOperations = require('./gitOps');
  */
 
 class Agent {
+  /**
+   * Creates a new Agent instance with configurable options
+   *
+   * @param {Object} options - Configuration options for the agent
+   * @param {string} options.backendUrl - URL of the AI backend service (default: hosted backend)
+   * @param {string} options.workingDir - Working directory for file operations (default: process.cwd())
+   * @param {boolean} options.autoTest - Whether to run tests automatically after successful execution (default: true)
+   * @param {boolean} options.autoRetry - Whether to enable self-healing retry mechanism (default: true)
+   * @param {number} options.maxRetries - Maximum retry attempts per failed step (default: 2)
+   * @param {boolean} options.scanOnFirstRequest - Whether to scan codebase on first request (default: true)
+   * @param {boolean} options.gitEnabled - Whether to enable Git integration features (default: false)
+   */
   constructor(options = {}) {
     // Default to hosted backend, can be overridden via options or env var
     const DEFAULT_BACKEND = 'https://coderrr-backend.vercel.app';
@@ -166,10 +178,20 @@ When editing existing files, use EXACT filenames from the list above. When creat
   }
 
   /**
-   * Execute a plan from the AI
-   */
-  /**
    * Execute a plan with self-healing retry mechanism
+   *
+   * This method processes each step in the plan, handling both file operations and command execution.
+   * It includes automatic retry logic for failed steps using AI-generated fixes when enabled.
+   * The retry mechanism distinguishes between retryable errors (logic issues that AI can fix)
+   * and non-retryable errors (permission/config issues that require user intervention).
+   *
+   * @param {Array<Object>} plan - Array of operation objects from AI response
+   * @param {string} plan[].action - Operation type ('create_file', 'update_file', 'patch_file', 'delete_file', 'read_file', 'run_command')
+   * @param {string} plan[].path - File path for file operations
+   * @param {string} plan[].content - File content for create/update operations
+   * @param {string} plan[].command - Shell command for run_command operations
+   * @param {string} plan[].summary - Human-readable description of the step
+   * @returns {Promise<Object>} Execution statistics {completed, total, pending}
    */
   async executePlan(plan) {
     if (!Array.isArray(plan) || plan.length === 0) {
