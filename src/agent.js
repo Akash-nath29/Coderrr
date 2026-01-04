@@ -16,7 +16,7 @@ class Agent {
     // Default to hosted backend, can be overridden via options or env var
     const DEFAULT_BACKEND = 'https://coderrr-backend.vercel.app';
     this.backendUrl = options.backendUrl || process.env.CODERRR_BACKEND || DEFAULT_BACKEND;
-    
+
     this.workingDir = options.workingDir || process.cwd();
     this.fileOps = new FileOperations(this.workingDir);
     this.executor = new CommandExecutor();
@@ -131,6 +131,38 @@ When editing existing files, use EXACT filenames from the list above. When creat
   }
 
   /**
+   * Check if an error is retryable (can be fixed by AI) or non-retryable (config/permission issue)
+   * Non-retryable errors should skip AI retry and immediately ask user
+   */
+  isRetryableError(errorMessage) {
+    const nonRetryablePatterns = [
+      /file already exists/i,
+      /already exists/i,
+      /permission denied/i,
+      /access is denied/i,
+      /EEXIST/i,
+      /EACCES/i,
+      /EPERM/i,
+      /ENOENT.*no such file or directory/i,
+      /invalid path/i,
+      /path too long/i,
+      /ENAMETOOLONG/i,
+      /cannot create directory/i,
+      /directory not empty/i,
+      /ENOTEMPTY/i,
+      /read-only file system/i,
+      /EROFS/i,
+      /disk quota exceeded/i,
+      /EDQUOT/i,
+      /no space left/i,
+      /ENOSPC/i,
+    ];
+
+    const isNonRetryable = nonRetryablePatterns.some(pattern => pattern.test(errorMessage));
+    return !isNonRetryable;
+  }
+
+  /**
    * Execute a plan from the AI
    */
   /**
@@ -168,14 +200,23 @@ When editing existing files, use EXACT filenames from the list above. When creat
             });
 
             if (!result.success && !result.cancelled) {
-              // Command failed - attempt self-healing if enabled
+              const errorMsg = result.error || result.output || 'Unknown error';
+
+              // Check if this error is retryable (can be fixed by AI)
+              if (!this.isRetryableError(errorMsg)) {
+                ui.error(`Non-retryable error: ${errorMsg}`);
+                ui.warning('⚠️  This type of error cannot be auto-fixed (file/permission/config issue)');
+                break; // Don't retry, let the outer loop ask user what to do
+              }
+
+              // Command failed - attempt self-healing if enabled and error is retryable
               if (this.autoRetry && retryCount < this.maxRetries) {
                 ui.warning(`Command failed (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
                 ui.info('🔧 Analyzing error and generating fix...');
-                
-                const fixedStep = await this.selfHeal(step, result.error || result.output, retryCount);
-                
-                if (fixedStep) {
+
+                const fixedStep = await this.selfHeal(step, errorMsg, retryCount);
+
+                if (fixedStep && fixedStep.command) {
                   step.command = fixedStep.command;
                   step.summary = fixedStep.summary || step.summary;
                   retryCount++;
@@ -206,14 +247,27 @@ When editing existing files, use EXACT filenames from the list above. When creat
             this.todoManager.complete(i);
           }
         } catch (error) {
+          const errorMsg = error.message || 'Unknown error';
+
+          // Check if this error is retryable (can be fixed by AI)
+          if (!this.isRetryableError(errorMsg)) {
+            ui.error(`Non-retryable error: ${errorMsg}`);
+            ui.warning('⚠️  This type of error cannot be auto-fixed (file/permission/config issue)');
+            break; // Don't retry, let the outer loop ask user what to do
+          }
+
           if (this.autoRetry && retryCount < this.maxRetries) {
-            ui.warning(`Step failed: ${error.message} (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
+            ui.warning(`Step failed: ${errorMsg} (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
             ui.info('🔧 Analyzing error and generating fix...');
-            
-            const fixedStep = await this.selfHeal(step, error.message, retryCount);
-            
+
+            const fixedStep = await this.selfHeal(step, errorMsg, retryCount);
+
             if (fixedStep) {
-              // Update step with fixed version
+              // Update step with fixed version - but validate it has required fields
+              if (step.action === 'run_command' && !fixedStep.command) {
+                ui.error('AI fix is missing command, cannot retry');
+                break;
+              }
               Object.assign(step, fixedStep);
               retryCount++;
               continue; // Retry with fixed step
@@ -222,7 +276,7 @@ When editing existing files, use EXACT filenames from the list above. When creat
               break;
             }
           } else {
-            ui.error(`Failed to execute step${this.autoRetry ? ` after ${this.maxRetries + 1} attempts` : ''}: ${error.message}`);
+            ui.error(`Failed to execute step${this.autoRetry ? ` after ${this.maxRetries + 1} attempts` : ''}: ${errorMsg}`);
             const shouldContinue = await ui.confirm('Continue with remaining steps?', false);
             if (!shouldContinue) {
               break;
@@ -373,7 +427,7 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
       let plan;
       try {
         const parsed = this.parseJsonResponse(response);
-        
+
         // Show explanation if present
         if (parsed.explanation) {
           ui.section('Plan');
@@ -385,12 +439,12 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
       } catch (error) {
         ui.warning('Could not parse structured plan from response');
         console.log(response);
-        
+
         const shouldContinue = await ui.confirm('Try manual execution mode?', false);
         if (!shouldContinue) {
           return;
         }
-        
+
         // No structured plan available
         return;
       }
@@ -422,7 +476,7 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
 
     while (true) {
       const request = await ui.input('You:', '');
-      
+
       if (!request.trim()) {
         continue;
       }

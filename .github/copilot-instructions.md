@@ -54,7 +54,7 @@ coderrr exec "task"   # Single command mode
 ### Backend Port Mismatch Fix
 
 The backend runs on **5000**, not 8000. Backend URL is configured via `CODERRR_BACKEND` environment variable:
-- `.env`: `CODERRR_BACKEND=http://localhost:5000`
+- `.env`: `CODERRR_BACKEND=http://localhost:8000`
 - All code reads from `process.env.CODERRR_BACKEND`
 
 ### Python Virtual Environment
@@ -263,7 +263,7 @@ node test-connection.js  # Tests backend connectivity
 
 ### Manual Backend Test
 ```bash
-curl http://localhost:5000
+curl http://localhost:8000
 # Should return: {"message":"Coderrr backend is running 🚀",...}
 ```
 
@@ -271,7 +271,7 @@ curl http://localhost:5000
 
 1. **ECONNREFUSED**: Backend not running or wrong port in CODERRR_BACKEND
    - Check: `ps aux | grep uvicorn` (or Task Manager on Windows)
-   - Fix: Set CODERRR_BACKEND=http://localhost:5000 in .env
+   - Fix: Set CODERRR_BACKEND=http://localhost:8000 in .env
 
 2. **JSON Parse Errors**: AI didn't return proper JSON
    - Backend logs show raw AI response

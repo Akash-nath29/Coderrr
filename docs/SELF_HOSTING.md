@@ -99,7 +99,7 @@ cd backend
 uvicorn main:app --host 0.0.0.0 --port 5000 --workers 4
 ```
 
-The backend will be available at `http://localhost:5000`
+The backend will be available at `http://localhost:8000`
 
 ### 6. Configure CLI to Use Local Backend
 
@@ -108,13 +108,13 @@ Create `~/.coderrr/.env`:
 **Windows:**
 ```powershell
 mkdir $HOME\.coderrr
-echo CODERRR_BACKEND=http://localhost:5000 > $HOME\.coderrr\.env
+echo CODERRR_BACKEND=http://localhost:8000 > $HOME\.coderrr\.env
 ```
 
 **Linux/Mac:**
 ```bash
 mkdir -p ~/.coderrr
-echo "CODERRR_BACKEND=http://localhost:5000" > ~/.coderrr/.env
+echo "CODERRR_BACKEND=http://localhost:8000" > ~/.coderrr/.env
 ```
 
 ### 7. Test It
@@ -149,7 +149,7 @@ For production deployment, see our [Deployment Guide](./DEPLOYMENT.md) which cov
 ### CLI can't connect to backend
 
 **Error: `Failed to communicate with backend: ECONNREFUSED`**
-- Check backend is running: `curl http://localhost:5000` should return a JSON response
+- Check backend is running: `curl http://localhost:8000` should return a JSON response
 - Check `~/.coderrr/.env` has correct `CODERRR_BACKEND` URL
 - Check firewall isn't blocking port 5000
 

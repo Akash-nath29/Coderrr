@@ -61,7 +61,7 @@ jobs:
       - name: Run tests
         run: npm test --if-present
         env:
-          CODERRR_BACKEND: http://localhost:5000
+          CODERRR_BACKEND: http://127.0.0.1:${{ secrets.PORT_NUMBER }}
           NODE_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
       
       - name: Test CLI installation
@@ -105,6 +105,7 @@ jobs:
           cd backend
           python -c "import main; print('Backend imports successfully')"
         env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
           PYTHON_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
 
   integration:
@@ -134,20 +135,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
       
-      - name: Create test environment file
-        run: |
-          echo "GITHUB_TOKEN=${{ secrets.PAT_TOKEN }}" > .env
-          echo "MISTRAL_ENDPOINT=https://models.inference.ai.azure.com" >> .env
-          echo "MISTRAL_MODEL=mistral-large-2411" >> .env
-          echo "CODERRR_BACKEND=http://localhost:5000" >> .env
-          echo "TIMEOUT_MS=120000" >> .env
-          echo "NODE_ENV=${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}" >> .env
-      
       - name: Start backend
         run: |
           cd backend
-          uvicorn main:app --host 0.0.0.0 --port 5000 &
+          echo "Starting backend on port ${{ secrets.PORT_NUMBER }}..."
+          uvicorn main:app --host 0.0.0.0 --port ${{ secrets.PORT_NUMBER }} > uvicorn.log 2>&1 &
+          BACKEND_PID=$!
+          echo "Backend PID: $BACKEND_PID"
           sleep 5
+          
+          # Check if backend is running
+          if ! kill -0 $BACKEND_PID 2>/dev/null; then
+            echo "❌ Backend failed to start! Logs:"
+            cat uvicorn.log
+            exit 1
+          fi
+          
+          # Health check
+          echo "Checking backend health..."
+          curl -v http://127.0.0.1:${{ secrets.PORT_NUMBER }}/ || {
+            echo "❌ Backend not responding! Logs:"
+            cat uvicorn.log
+            exit 1
+          }
+          echo "✅ Backend is running!"
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       
       - name: Run integration tests
         run: |
@@ -155,7 +168,7 @@ jobs:
           node test/test-scanner.js
           node test/test-agent-scanner.js
         env:
-          CODERRR_BACKEND: http://localhost:5000
+          CODERRR_BACKEND: http://127.0.0.1:${{ secrets.PORT_NUMBER }}
           NODE_ENV: ${{ github.event.pull_request.base.ref == 'main' && 'production' || 'development' }}
       
       - name: Stop backend
@@ -248,6 +261,8 @@ jobs:
           node -e "console.log('✅ Node.js installation verified')"
           cd backend
           python -c "import main; print('✅ Python backend verified')"
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
       
       - name: Test CLI
         run: |

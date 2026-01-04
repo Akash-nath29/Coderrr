@@ -72,7 +72,7 @@ We take the security of Coderrr seriously. If you believe you have found a secur
 
 ### Backend Exposure
 
-- Default backend runs on localhost:5000
+- Default backend runs on localhost:8000
 - Exposing backend to network requires additional security:
   - HTTPS/TLS encryption
   - Authentication middleware

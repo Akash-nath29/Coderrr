@@ -1,47 +1,19 @@
 import os
-import sys
-from fastapi import FastAPI, Request
+import time
+from typing import Optional
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, validator
 from dotenv import load_dotenv
+import asyncio
 
 load_dotenv()
 
-
-# Mistral client — try import, with fallback to the repo virtualenv site-packages
-def _import_mistralai_with_fallback():
-    try:
-        from mistralai import Mistral, UserMessage, SystemMessage
-        return Mistral, UserMessage, SystemMessage
-    except Exception as orig_err:
-        # Try common local venv paths relative to the project root
-        base = os.path.dirname(__file__)
-        py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
-        candidates = [
-            os.path.join(base, "env", "Lib", "site-packages"),
-            os.path.join(base, "env", "lib", py_ver, "site-packages"),
-            os.path.join(base, ".venv", "Lib", "site-packages"),
-            os.path.join(base, ".venv", "lib", py_ver, "site-packages"),
-        ]
-
-        for p in candidates:
-            if os.path.isdir(p) and p not in sys.path:
-                sys.path.insert(0, p)
-                try:
-                    from mistralai import Mistral, UserMessage, SystemMessage
-                    return Mistral, UserMessage, SystemMessage
-                except Exception:
-                    # continue trying other candidate paths
-                    pass
-
-        # If we reach here, we couldn't import even after trying local venv paths
-        raise RuntimeError(
-            "mistralai import failed. Install the SDK in the active environment or activate the project's virtualenv. "
-            "On Windows PowerShell run: `env\\Scripts\\Activate.ps1` then `pip install mistralai`. "
-            f"Original error: {orig_err}"
-        )
-
-
-Mistral, UserMessage, SystemMessage = _import_mistralai_with_fallback()
+# Azure AI Inference SDK for GitHub Models
+from azure.ai.inference import ChatCompletionsClient
+from azure.ai.inference.models import SystemMessage, UserMessage
+from azure.core.credentials import AzureKeyCredential
 
 app = FastAPI(title="Coderrr Backend")
 
@@ -53,11 +25,93 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-TOKEN = os.getenv("GITHUB_TOKEN") or os.getenv("MISTRAL_API_KEY")
-ENDPOINT = os.getenv("MISTRAL_ENDPOINT", "https://models.github.ai/inference")
-MODEL_NAME = os.getenv("MISTRAL_MODEL", "mistral-ai/Mistral-Large-2411")
+# Configuration
+TOKEN = os.getenv("GITHUB_TOKEN")
+ENDPOINT = os.getenv("GITHUB_MODELS_ENDPOINT", "https://models.github.ai/inference")
+MODEL_NAME = os.getenv("GITHUB_MODEL", "openai/gpt-4o")
 
-client = Mistral(api_key=TOKEN, server_url=ENDPOINT)
+# Security Configuration
+MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "10000"))  # 10k chars
+MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE", "50000"))  # 50k chars total
+LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))  # 60 seconds
+RATE_LIMIT_WINDOW = 60  # 1 minute
+RATE_LIMIT_MAX_REQUESTS = 30  # 30 requests per minute per IP
+
+# Rate limiting store (in-memory, production should use Redis)
+rate_limit_store = {}
+
+# Validate GitHub token on startup
+if not TOKEN:
+    raise RuntimeError("GITHUB_TOKEN environment variable is required but not set")
+
+# Initialize client with error handling
+try:
+    client = ChatCompletionsClient(
+        endpoint=ENDPOINT,
+        credential=AzureKeyCredential(TOKEN),
+    )
+    print(f"[INFO] Successfully initialized client with model: {MODEL_NAME}")
+except Exception as e:
+    print(f"[ERROR] Failed to initialize AI client: {e}")
+    raise RuntimeError(f"Failed to initialize AI client: {e}")
+
+
+# Request validation models
+class ChatRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=MAX_PROMPT_LENGTH)
+    temperature: Optional[float] = Field(default=0.2, ge=0.0, le=2.0)
+    max_tokens: Optional[int] = Field(default=2000, ge=1, le=4000)
+    top_p: Optional[float] = Field(default=1.0, ge=0.0, le=1.0)
+
+    @validator('prompt')
+    def validate_prompt(cls, v):
+        # Trim whitespace
+        v = v.strip()
+        
+        # Check if empty after trimming
+        if not v:
+            raise ValueError("Prompt cannot be empty or only whitespace")
+        
+        # Check for suspicious patterns (basic injection prevention)
+        suspicious_patterns = [
+            "ignore previous instructions",
+            "disregard system prompt",
+            "override instructions",
+            "bypass security"
+        ]
+        
+        v_lower = v.lower()
+        for pattern in suspicious_patterns:
+            if pattern in v_lower:
+                raise ValueError(f"Prompt contains suspicious pattern: {pattern}")
+        
+        return v
+
+    class Config:
+        # Validate on assignment
+        validate_assignment = True
+
+
+def check_rate_limit(ip: str) -> bool:
+    """Simple in-memory rate limiting (use Redis in production)"""
+    current_time = time.time()
+    
+    # Clean up old entries
+    rate_limit_store[ip] = [
+        timestamp for timestamp in rate_limit_store.get(ip, [])
+        if current_time - timestamp < RATE_LIMIT_WINDOW
+    ]
+    
+    # Check if under limit
+    if len(rate_limit_store.get(ip, [])) >= RATE_LIMIT_MAX_REQUESTS:
+        return False
+    
+    # Add current request
+    if ip not in rate_limit_store:
+        rate_limit_store[ip] = []
+    rate_limit_store[ip].append(current_time)
+    
+    return True
 
 
 SYSTEM_INSTRUCTIONS = """
@@ -116,38 +170,117 @@ Now respond to the user's request with a valid JSON plan.
 
 @app.get("/")
 def root():
-    return {"message": "Coderrr backend is running 🚀", "model": MODEL_NAME}
+    return {
+        "message": "Coderrr backend is running 🚀",
+        "model": MODEL_NAME,
+        "version": "1.1.0",
+        "security": {
+            "max_prompt_length": MAX_PROMPT_LENGTH,
+            "rate_limit": f"{RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s",
+            "llm_timeout": f"{LLM_TIMEOUT}s"
+        }
+    }
+
 
 @app.post("/chat")
-async def chat(req: Request):
-    body = await req.json()
-    user_prompt = body.get("prompt", "")
-    if not user_prompt:
-        return {"error": "prompt required"}, 400
-
-    system_prompt = SYSTEM_INSTRUCTIONS
-    # Append user request asking for a plan in JSON
-    user_message = f"User request: {user_prompt}\n\nPlease output a JSON object with explanation and plan as described."
-
+async def chat(request: Request):
     try:
-        response = client.chat.complete(
-            model=MODEL_NAME,
-            messages=[
-                SystemMessage(content=system_prompt),
-                UserMessage(content=user_message)
-            ],
-            temperature=float(body.get("temperature", 0.2)),
-            max_tokens=int(body.get("max_tokens", 1500)),
-            top_p=float(body.get("top_p", 1.0))
-        )
-        # Extract model text
-        text = ""
+        # Get client IP for rate limiting
+        client_ip = request.client.host
+        
+        # Check rate limit
+        if not check_rate_limit(client_ip):
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded. Maximum {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW} seconds."
+            )
+        
+        # Get raw body for size check
+        body_bytes = await request.body()
+        if len(body_bytes) > MAX_REQUEST_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Request body too large. Maximum size: {MAX_REQUEST_SIZE} bytes"
+            )
+        
+        # Parse and validate request
+        try:
+            body_json = await request.json()
+            chat_request = ChatRequest(**body_json)
+        except ValueError as ve:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Validation error: {str(ve)}"
+            )
+        except Exception as parse_error:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid request format: {str(parse_error)}"
+            )
+        
+        # Build user message
+        user_message = f"User request: {chat_request.prompt}\n\nPlease output a JSON object with explanation and plan as described."
+        
+        print(f"[INFO] Processing request from {client_ip}")
+        print(f"[DEBUG] Prompt length: {len(chat_request.prompt)} chars")
+        
+        # Call LLM with timeout
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.complete,
+                    model=MODEL_NAME,
+                    messages=[
+                        SystemMessage(content=SYSTEM_INSTRUCTIONS),
+                        UserMessage(content=user_message)
+                    ],
+                    temperature=chat_request.temperature,
+                    max_tokens=chat_request.max_tokens,
+                    top_p=chat_request.top_p
+                ),
+                timeout=LLM_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            print(f"[ERROR] LLM request timed out after {LLM_TIMEOUT}s")
+            raise HTTPException(
+                status_code=504,
+                detail=f"Request timed out after {LLM_TIMEOUT} seconds"
+            )
+        
+        # Extract response text
         try:
             text = response.choices[0].message.content
-        except Exception:
-            text = str(response)
-
-        # Return raw text and let CLI try to parse JSON
+            print(f"[INFO] Successfully generated response ({len(text)} chars)")
+        except (AttributeError, IndexError, KeyError) as extract_err:
+            print(f"[ERROR] Failed to extract response: {extract_err}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to process model response"
+            )
+        
         return {"response": text}
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    
     except Exception as e:
-        return {"error": "model request failed", "details": str(e)}, 500
+        # Log error without exposing details to client
+        print(f"[ERROR] Unexpected error in /chat endpoint: {type(e).__name__}")
+        print(f"[ERROR] Error details: {str(e)}")
+        
+        # Return generic error to client (no stack trace)
+        raise HTTPException(
+            status_code=500,
+            detail="An internal error occurred while processing your request"
+        )
+
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for monitoring"""
+    return {
+        "status": "healthy",
+        "model": MODEL_NAME,
+        "token_configured": bool(TOKEN)
+    }
