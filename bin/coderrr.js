@@ -36,13 +36,15 @@ program
   .option('--no-auto-test', 'Disable automatic test running')
   .option('--no-auto-retry', 'Disable automatic retry on errors (self-healing)')
   .option('--max-retries <number>', 'Maximum retry attempts per step', '2')
+  .option('--auto-commit', 'Enable git auto-commit and checkpoint features')
   .action(async (options) => {
     const agent = new Agent({
       backendUrl: options.backend,
       workingDir: path.resolve(options.dir),
       autoTest: options.autoTest,
       autoRetry: options.autoRetry,
-      maxRetries: parseInt(options.maxRetries)
+      maxRetries: parseInt(options.maxRetries),
+      gitEnabled: options.autoCommit || false
     });
 
     await agent.interactive();
@@ -56,16 +58,31 @@ program
   .option('--no-auto-test', 'Disable automatic test running')
   .option('--no-auto-retry', 'Disable automatic retry on errors (self-healing)')
   .option('--max-retries <number>', 'Maximum retry attempts per step', '2')
+  .option('--auto-commit', 'Enable git auto-commit and checkpoint features')
   .action(async (request, options) => {
     const agent = new Agent({
       backendUrl: options.backend,
       workingDir: path.resolve(options.dir),
       autoTest: options.autoTest,
       autoRetry: options.autoRetry,
-      maxRetries: parseInt(options.maxRetries)
+      maxRetries: parseInt(options.maxRetries),
+      gitEnabled: options.autoCommit || false
     });
 
     await agent.process(request);
+    process.exit(0);
+  });
+
+// Rollback command - revert Coderrr changes
+program
+  .command('rollback')
+  .description('Rollback recent Coderrr changes via interactive menu')
+  .option('-d, --dir <path>', 'Working directory', process.cwd())
+  .action(async (options) => {
+    const GitOperations = require('../src/gitOps');
+    const git = new GitOperations(path.resolve(options.dir));
+
+    await git.interactiveRollback();
     process.exit(0);
   });
 
@@ -77,7 +94,8 @@ program
       workingDir: process.cwd(),
       autoTest: true,
       autoRetry: true,
-      maxRetries: 2
+      maxRetries: 2,
+      gitEnabled: false
     });
 
     await agent.interactive();
