@@ -146,7 +146,7 @@ class FileOperations {
   async readFile(filePath) {
     try {
       const absolutePath = this.resolvePath(filePath);
-      
+
       // Check if file exists
       if (!fs.existsSync(absolutePath)) {
         throw new Error(`File not found: ${filePath}`);
@@ -163,31 +163,179 @@ class FileOperations {
   }
 
   /**
-   * Execute a file operation based on action type
+   * Create a new directory
+   *
+   * @param {string} dirPath - Relative or absolute path to the directory to create
+   * @returns {Promise<Object>} Result object with success status and absolute path
+   * @throws {Error} If directory already exists or creation fails
+   */
+  async createDir(dirPath) {
+    try {
+      const absolutePath = this.resolvePath(dirPath);
+
+      // Check if directory already exists
+      if (fs.existsSync(absolutePath)) {
+        throw new Error(`Directory already exists: ${dirPath}`);
+      }
+
+      // Create directory (recursive)
+      fs.mkdirSync(absolutePath, { recursive: true });
+      ui.displayFileOp('create_dir', dirPath, 'success');
+      return { success: true, path: absolutePath };
+    } catch (error) {
+      ui.displayFileOp('create_dir', dirPath, 'error');
+      throw error;
+    }
+  }
+
+  /**
+   * Delete an empty directory
+   *
+   * @param {string} dirPath - Relative or absolute path to the directory to delete
+   * @returns {Promise<Object>} Result object with success status and absolute path
+   * @throws {Error} If directory not found, not empty, or deletion fails
+   */
+  async deleteDir(dirPath) {
+    try {
+      const absolutePath = this.resolvePath(dirPath);
+
+      // Check if directory exists
+      if (!fs.existsSync(absolutePath)) {
+        throw new Error(`Directory not found: ${dirPath}`);
+      }
+
+      // Check if it's actually a directory
+      if (!fs.statSync(absolutePath).isDirectory()) {
+        throw new Error(`Path is not a directory: ${dirPath}`);
+      }
+
+      // Check if directory is empty
+      const contents = fs.readdirSync(absolutePath);
+      if (contents.length > 0) {
+        throw new Error(`Directory not empty: ${dirPath}`);
+      }
+
+      // Delete directory
+      fs.rmdirSync(absolutePath);
+      ui.displayFileOp('delete_dir', dirPath, 'success');
+      return { success: true, path: absolutePath };
+    } catch (error) {
+      ui.displayFileOp('delete_dir', dirPath, 'error');
+      throw error;
+    }
+  }
+
+  /**
+   * List contents of a directory
+   *
+   * @param {string} dirPath - Relative or absolute path to the directory to list
+   * @returns {Promise<Object>} Result object with success status, absolute path, and contents array
+   * @throws {Error} If directory not found or listing fails
+   */
+  async listDir(dirPath) {
+    try {
+      const absolutePath = this.resolvePath(dirPath);
+
+      // Check if directory exists
+      if (!fs.existsSync(absolutePath)) {
+        throw new Error(`Directory not found: ${dirPath}`);
+      }
+
+      // Check if it's actually a directory
+      if (!fs.statSync(absolutePath).isDirectory()) {
+        throw new Error(`Path is not a directory: ${dirPath}`);
+      }
+
+      // List contents
+      const contents = fs.readdirSync(absolutePath);
+      ui.displayFileOp('list_dir', dirPath, 'success');
+      return { success: true, path: absolutePath, contents };
+    } catch (error) {
+      ui.displayFileOp('list_dir', dirPath, 'error');
+      throw error;
+    }
+  }
+
+  /**
+   * Rename/move a directory
+   *
+   * @param {string} oldDirPath - Relative or absolute path to the directory to rename
+   * @param {string} newDirPath - Relative or absolute path for the new directory name/location
+   * @returns {Promise<Object>} Result object with success status and absolute paths
+   * @throws {Error} If source directory not found, destination exists, or rename fails
+   */
+  async renameDir(oldDirPath, newDirPath) {
+    try {
+      const oldAbsolutePath = this.resolvePath(oldDirPath);
+      const newAbsolutePath = this.resolvePath(newDirPath);
+
+      // Check if source directory exists
+      if (!fs.existsSync(oldAbsolutePath)) {
+        throw new Error(`Directory not found: ${oldDirPath}`);
+      }
+
+      // Check if it's actually a directory
+      if (!fs.statSync(oldAbsolutePath).isDirectory()) {
+        throw new Error(`Source path is not a directory: ${oldDirPath}`);
+      }
+
+      // Check if destination already exists
+      if (fs.existsSync(newAbsolutePath)) {
+        throw new Error(`Destination already exists: ${newDirPath}`);
+      }
+
+      // Ensure parent directory of destination exists
+      const newDirParent = path.dirname(newAbsolutePath);
+      this.ensureDir(newDirParent);
+
+      // Rename/move directory
+      fs.renameSync(oldAbsolutePath, newAbsolutePath);
+      ui.displayFileOp('rename_dir', `${oldDirPath} -> ${newDirPath}`, 'success');
+      return { success: true, oldPath: oldAbsolutePath, newPath: newAbsolutePath };
+    } catch (error) {
+      ui.displayFileOp('rename_dir', `${oldDirPath} -> ${newDirPath}`, 'error');
+      throw error;
+    }
+  }
+
+  /**
+   * Execute a file or directory operation based on action type
    */
   async execute(action) {
     switch (action.action) {
       case 'create_file':
         return await this.createFile(action.path, action.content || '');
-      
+
       case 'update_file':
         return await this.updateFile(action.path, action.content || '');
-      
+
       case 'patch_file':
         return await this.patchFile(
-          action.path, 
-          action.oldContent || action.patch?.old || '', 
+          action.path,
+          action.oldContent || action.patch?.old || '',
           action.newContent || action.patch?.new || action.content || ''
         );
-      
+
       case 'delete_file':
         return await this.deleteFile(action.path);
-      
+
       case 'read_file':
         return await this.readFile(action.path);
-      
+
+      case 'create_dir':
+        return await this.createDir(action.path);
+
+      case 'delete_dir':
+        return await this.deleteDir(action.path);
+
+      case 'list_dir':
+        return await this.listDir(action.path);
+
+      case 'rename_dir':
+        return await this.renameDir(action.oldPath || action.path, action.newPath);
+
       default:
-        throw new Error(`Unknown file action: ${action.action}`);
+        throw new Error(`Unknown action: ${action.action}`);
     }
   }
 }
