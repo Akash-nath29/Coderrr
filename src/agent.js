@@ -6,12 +6,25 @@ const FileOperations = require('./fileOps');
 const CommandExecutor = require('./executor').CommandExecutor;
 const TodoManager = require('./todoManager');
 const CodebaseScanner = require('./codebaseScanner');
+const GitOperations = require('./gitOps');
 
 /**
  * Core AI Agent that communicates with backend and executes plans
  */
 
 class Agent {
+  /**
+   * Creates a new Agent instance with configurable options
+   *
+   * @param {Object} options - Configuration options for the agent
+   * @param {string} options.backendUrl - URL of the AI backend service (default: hosted backend)
+   * @param {string} options.workingDir - Working directory for file operations (default: process.cwd())
+   * @param {boolean} options.autoTest - Whether to run tests automatically after successful execution (default: true)
+   * @param {boolean} options.autoRetry - Whether to enable self-healing retry mechanism (default: true)
+   * @param {number} options.maxRetries - Maximum retry attempts per failed step (default: 2)
+   * @param {boolean} options.scanOnFirstRequest - Whether to scan codebase on first request (default: true)
+   * @param {boolean} options.gitEnabled - Whether to enable Git integration features (default: false)
+   */
   constructor(options = {}) {
     // Default to hosted backend, can be overridden via options or env var
     const DEFAULT_BACKEND = 'https://coderrr-backend.vercel.app';
@@ -22,12 +35,49 @@ class Agent {
     this.executor = new CommandExecutor();
     this.todoManager = new TodoManager();
     this.scanner = new CodebaseScanner(this.workingDir);
+    this.git = new GitOperations(this.workingDir);
     this.conversationHistory = [];
     this.autoTest = options.autoTest !== false; // Default to true
     this.autoRetry = options.autoRetry !== false; // Default to true - self-healing on errors
     this.maxRetries = options.maxRetries || 2; // Default 2 retries per step
     this.codebaseContext = null; // Cached codebase structure
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
+    this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
+    this.maxHistoryLength = options.maxHistoryLength || 10; // Max conversation turns to keep
+  }
+
+  /**
+   * Add a message to conversation history
+   * @param {string} role - 'user' or 'assistant'
+   * @param {string} content - Message content
+   */
+  addToHistory(role, content) {
+    this.conversationHistory.push({ role, content });
+    
+    // Trim history if it exceeds max length (keep most recent)
+    // Each turn = 2 messages (user + assistant), so maxHistoryLength * 2
+    const maxMessages = this.maxHistoryLength * 2;
+    if (this.conversationHistory.length > maxMessages) {
+      this.conversationHistory = this.conversationHistory.slice(-maxMessages);
+    }
+  }
+
+  /**
+   * Clear conversation history (useful for starting fresh)
+   */
+  clearHistory() {
+    this.conversationHistory = [];
+    ui.info('Conversation history cleared');
+  }
+
+  /**
+   * Get formatted conversation history for the backend
+   */
+  getFormattedHistory() {
+    return this.conversationHistory.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
   }
 
   /**
@@ -53,31 +103,46 @@ class Agent {
       // Enhance prompt with codebase context
       let enhancedPrompt = prompt;
       if (this.codebaseContext) {
+        const osType = process.platform === 'win32' ? 'Windows' : 
+                       process.platform === 'darwin' ? 'macOS' : 'Linux';
+        
         enhancedPrompt = `${prompt}
+
+SYSTEM ENVIRONMENT:
+Operating System: ${osType}
+Platform: ${process.platform}
+Node Version: ${process.version}
 
 EXISTING PROJECT STRUCTURE:
 Working Directory: ${this.codebaseContext.structure.workingDir}
 Total Files: ${this.codebaseContext.structure.totalFiles}
 Total Directories: ${this.codebaseContext.structure.totalDirectories}
-
 DIRECTORIES:
 ${this.codebaseContext.directories.slice(0, 20).join('\n')}
-
 EXISTING FILES:
 ${this.codebaseContext.files.slice(0, 30).map(f => `- ${f.path} (${f.size} bytes)`).join('\n')}
 
-When editing existing files, use EXACT filenames from the list above. When creating new files, ensure they don't conflict with existing ones.`;
+When editing existing files, use EXACT filenames from the list above. When creating new files, ensure they don't conflict with existing ones.
+For command execution on ${osType}, use appropriate command separators (${osType === 'Windows' ? 'semicolon (;)' : 'ampersand (&&)'}).`;
       }
 
       const spinner = ui.spinner('Thinking...');
       spinner.start();
 
-      const response = await axios.post(`${this.backendUrl}/chat`, {
+      // Include conversation history for context continuity
+      const requestPayload = {
         prompt: enhancedPrompt,
         temperature: options.temperature || 0.2,
         max_tokens: options.max_tokens || 2000,
         top_p: options.top_p || 1.0
-      });
+      };
+
+      // Add conversation history if available (for multi-turn conversations)
+      if (this.conversationHistory.length > 0) {
+        requestPayload.conversation_history = this.getFormattedHistory();
+      }
+
+      const response = await axios.post(`${this.backendUrl}/chat`, requestPayload);
 
       spinner.stop();
 
@@ -85,7 +150,8 @@ When editing existing files, use EXACT filenames from the list above. When creat
         throw new Error(response.data.error);
       }
 
-      return response.data.response;
+      // Handle both new format (direct object with explanation/plan) and legacy format (wrapped in response)
+      return response.data.response || response.data;
     } catch (error) {
       if (error.code === 'ECONNREFUSED') {
         ui.error(`Cannot connect to backend at ${this.backendUrl}`);
@@ -163,10 +229,20 @@ When editing existing files, use EXACT filenames from the list above. When creat
   }
 
   /**
-   * Execute a plan from the AI
-   */
-  /**
    * Execute a plan with self-healing retry mechanism
+   *
+   * This method processes each step in the plan, handling both file operations and command execution.
+   * It includes automatic retry logic for failed steps using AI-generated fixes when enabled.
+   * The retry mechanism distinguishes between retryable errors (logic issues that AI can fix)
+   * and non-retryable errors (permission/config issues that require user intervention).
+   *
+   * @param {Array<Object>} plan - Array of operation objects from AI response
+   * @param {string} plan[].action - Operation type ('create_file', 'update_file', 'patch_file', 'delete_file', 'read_file', 'run_command')
+   * @param {string} plan[].path - File path for file operations
+   * @param {string} plan[].content - File content for create/update operations
+   * @param {string} plan[].command - Shell command for run_command operations
+   * @param {string} plan[].summary - Human-readable description of the step
+   * @returns {Promise<Object>} Execution statistics {completed, total, pending}
    */
   async executePlan(plan) {
     if (!Array.isArray(plan) || plan.length === 0) {
@@ -177,6 +253,22 @@ When editing existing files, use EXACT filenames from the list above. When creat
     // Parse and display TODOs
     this.todoManager.parseTodos(plan);
     this.todoManager.display();
+
+    // Git pre-execution hook
+    if (this.gitEnabled) {
+      const gitValid = await this.git.validateGitSetup();
+      if (gitValid) {
+        // Check for uncommitted changes
+        const canProceed = await this.git.checkUncommittedChanges();
+        if (!canProceed) {
+          ui.warning('Execution cancelled by user');
+          return;
+        }
+        // Create checkpoint
+        const planDescription = plan[0]?.summary || 'Execute plan';
+        await this.git.createCheckpoint(planDescription);
+      }
+    }
 
     ui.section('Executing Plan');
 
@@ -303,6 +395,15 @@ When editing existing files, use EXACT filenames from the list above. When creat
       ui.warning(`Skipped: ${stats.pending} tasks`);
     }
 
+    // Git post-execution hook - commit if all successful
+    if (this.gitEnabled && stats.completed === stats.total && stats.total > 0) {
+      const gitValid = await this.git.isGitRepository();
+      if (gitValid) {
+        const planDescription = plan[0]?.summary || 'Completed plan';
+        await this.git.commitChanges(planDescription);
+      }
+    }
+
     return stats;
   }
 
@@ -311,6 +412,7 @@ When editing existing files, use EXACT filenames from the list above. When creat
    */
   async selfHeal(failedStep, errorMessage, attemptNumber) {
     try {
+      // Use the same format as normal requests so it passes backend validation
       const healingPrompt = `The following step failed with an error. Please analyze the error and provide a fixed version of the step.
 
 FAILED STEP:
@@ -327,28 +429,37 @@ CONTEXT:
 - Attempt number: ${attemptNumber + 1}
 - Available files: ${this.codebaseContext ? this.codebaseContext.files.map(f => f.path).slice(0, 10).join(', ') : 'Unknown'}
 
-Please provide ONLY a JSON object with the fixed step in this exact format:
+Please provide ONLY a JSON object with the fixed step. Use the standard plan format:
 {
   "explanation": "Brief explanation of what went wrong and how you fixed it",
-  "fixed_step": {
-    "action": "${failedStep.action}",
-    "command": "corrected command if action is run_command",
-    "path": "corrected path if file operation",
-    "content": "corrected content if needed",
-    "summary": "updated summary"
-  }
+  "plan": [
+    {
+      "action": "${failedStep.action}",
+      "command": "corrected command if action is run_command",
+      "path": "corrected path if file operation",
+      "content": "corrected content if needed",
+      "oldContent": "old content for patch_file",
+      "newContent": "new content for patch_file",
+      "summary": "updated summary"
+    }
+  ]
 }`;
 
       ui.info('🔧 Requesting fix from AI...');
       const response = await this.chat(healingPrompt);
-      const parsed = this.parseJsonResponse(response);
+
+      // Handle both object response (from new backend) and string response
+      const parsed = typeof response === 'object' && response !== null && response.plan
+        ? response
+        : this.parseJsonResponse(response);
 
       if (parsed.explanation) {
         ui.info(`💡 Fix: ${parsed.explanation}`);
       }
 
-      if (parsed.fixed_step) {
-        return parsed.fixed_step;
+      // Extract the fixed step from the plan array
+      if (parsed.plan && parsed.plan.length > 0) {
+        return parsed.plan[0];
       }
 
       return null;
@@ -415,30 +526,54 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
   /**
    * Main agent loop - process user request
    */
-  async process(userRequest) {
+  async process(userRequest, options = {}) {
+    const { trackHistory = true } = options;
+    
     try {
       ui.section('Processing Request');
       ui.info(`Request: ${userRequest}`);
 
+      // Add user message to history before processing
+      if (trackHistory) {
+        this.addToHistory('user', userRequest);
+      }
+
       // Get AI response
       const response = await this.chat(userRequest);
 
-      // Try to parse JSON plan
+      // Try to parse JSON plan - handle both object responses (new backend) and string responses
       let plan;
+      let explanation = '';
       try {
-        const parsed = this.parseJsonResponse(response);
+        // If response is already an object with explanation/plan, use it directly
+        const parsed = typeof response === 'object' && response !== null && response.plan
+          ? response
+          : this.parseJsonResponse(response);
 
         // Show explanation if present
         if (parsed.explanation) {
+          explanation = parsed.explanation;
           ui.section('Plan');
           console.log(parsed.explanation);
           ui.space();
         }
 
         plan = parsed.plan;
+        
+        // Add assistant response to history (summarized for context efficiency)
+        if (trackHistory) {
+          const historySummary = explanation || 
+            `Executed ${plan?.length || 0} step(s): ${plan?.map(s => s.summary || s.action).join(', ')}`;
+          this.addToHistory('assistant', historySummary);
+        }
       } catch (error) {
         ui.warning('Could not parse structured plan from response');
         console.log(response);
+        
+        // Still add to history even if parsing failed
+        if (trackHistory) {
+          this.addToHistory('assistant', response.substring(0, 500));
+        }
 
         const shouldContinue = await ui.confirm('Try manual execution mode?', false);
         if (!shouldContinue) {
@@ -467,11 +602,12 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
   }
 
   /**
-   * Interactive mode - continuous conversation
+   * Interactive mode - continuous conversation with history
    */
   async interactive() {
     ui.showBanner();
     ui.info('Interactive mode - Type your requests or "exit" to quit');
+    ui.info('Commands: "clear" (reset conversation), "history" (show context), "refresh" (rescan codebase)');
     ui.space();
 
     while (true) {
@@ -481,9 +617,54 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
         continue;
       }
 
-      if (request.toLowerCase() === 'exit' || request.toLowerCase() === 'quit') {
+      const command = request.toLowerCase().trim();
+      
+      // Handle special commands
+      if (command === 'exit' || command === 'quit') {
         ui.info('Goodbye! 👋');
         break;
+      }
+      
+      if (command === 'clear' || command === 'reset') {
+        this.clearHistory();
+        ui.success('Starting fresh conversation');
+        ui.space();
+        continue;
+      }
+      
+      if (command === 'history') {
+        if (this.conversationHistory.length === 0) {
+          ui.info('No conversation history yet');
+        } else {
+          ui.section(`Conversation History (${this.conversationHistory.length} messages)`);
+          this.conversationHistory.forEach((msg, i) => {
+            const prefix = msg.role === 'user' ? '👤 You:' : '🤖 Coderrr:';
+            const content = msg.content.length > 100 
+              ? msg.content.substring(0, 100) + '...' 
+              : msg.content;
+            console.log(`  ${i + 1}. ${prefix} ${content}`);
+          });
+        }
+        ui.space();
+        continue;
+      }
+      
+      if (command === 'refresh') {
+        this.refreshCodebase();
+        ui.space();
+        continue;
+      }
+      
+      if (command === 'help') {
+        ui.section('Available Commands');
+        console.log('  exit, quit    - Exit interactive mode');
+        console.log('  clear, reset  - Clear conversation history');
+        console.log('  history       - Show conversation history');
+        console.log('  refresh       - Rescan the codebase');
+        console.log('  help          - Show this help message');
+        console.log('  Or just type your coding request!');
+        ui.space();
+        continue;
       }
 
       await this.process(request);

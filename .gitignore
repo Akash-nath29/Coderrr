@@ -4,3 +4,5 @@ env/
 __pycache__/
 *.pyc
 *.tgz
+
+token.txt
