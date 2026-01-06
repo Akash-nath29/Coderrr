@@ -100,7 +100,8 @@ When editing existing files, use EXACT filenames from the list above. When creat
         throw new Error(response.data.error);
       }
 
-      return response.data.response;
+      // Handle both new format (direct object with explanation/plan) and legacy format (wrapped in response)
+      return response.data.response || response.data;
     } catch (error) {
       if (error.code === 'ECONNREFUSED') {
         ui.error(`Cannot connect to backend at ${this.backendUrl}`);
@@ -361,6 +362,7 @@ When editing existing files, use EXACT filenames from the list above. When creat
    */
   async selfHeal(failedStep, errorMessage, attemptNumber) {
     try {
+      // Use the same format as normal requests so it passes backend validation
       const healingPrompt = `The following step failed with an error. Please analyze the error and provide a fixed version of the step.
 
 FAILED STEP:
@@ -377,28 +379,37 @@ CONTEXT:
 - Attempt number: ${attemptNumber + 1}
 - Available files: ${this.codebaseContext ? this.codebaseContext.files.map(f => f.path).slice(0, 10).join(', ') : 'Unknown'}
 
-Please provide ONLY a JSON object with the fixed step in this exact format:
+Please provide ONLY a JSON object with the fixed step. Use the standard plan format:
 {
   "explanation": "Brief explanation of what went wrong and how you fixed it",
-  "fixed_step": {
-    "action": "${failedStep.action}",
-    "command": "corrected command if action is run_command",
-    "path": "corrected path if file operation",
-    "content": "corrected content if needed",
-    "summary": "updated summary"
-  }
+  "plan": [
+    {
+      "action": "${failedStep.action}",
+      "command": "corrected command if action is run_command",
+      "path": "corrected path if file operation",
+      "content": "corrected content if needed",
+      "oldContent": "old content for patch_file",
+      "newContent": "new content for patch_file",
+      "summary": "updated summary"
+    }
+  ]
 }`;
 
       ui.info('🔧 Requesting fix from AI...');
       const response = await this.chat(healingPrompt);
-      const parsed = this.parseJsonResponse(response);
+
+      // Handle both object response (from new backend) and string response
+      const parsed = typeof response === 'object' && response !== null && response.plan
+        ? response
+        : this.parseJsonResponse(response);
 
       if (parsed.explanation) {
         ui.info(`💡 Fix: ${parsed.explanation}`);
       }
 
-      if (parsed.fixed_step) {
-        return parsed.fixed_step;
+      // Extract the fixed step from the plan array
+      if (parsed.plan && parsed.plan.length > 0) {
+        return parsed.plan[0];
       }
 
       return null;
@@ -473,10 +484,13 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
       // Get AI response
       const response = await this.chat(userRequest);
 
-      // Try to parse JSON plan
+      // Try to parse JSON plan - handle both object responses (new backend) and string responses
       let plan;
       try {
-        const parsed = this.parseJsonResponse(response);
+        // If response is already an object with explanation/plan, use it directly
+        const parsed = typeof response === 'object' && response !== null && response.plan
+          ? response
+          : this.parseJsonResponse(response);
 
         // Show explanation if present
         if (parsed.explanation) {

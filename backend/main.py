@@ -32,7 +32,7 @@ MODEL_NAME = os.getenv("GITHUB_MODEL", "openai/gpt-4o")
 # Security Configuration
 MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "10000"))  # 10k chars
 MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE", "50000"))  # 50k chars total
-LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))  # 60 seconds
+LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "1200"))  # 60 seconds
 RATE_LIMIT_WINDOW = 60  # 1 minute
 RATE_LIMIT_MAX_REQUESTS = 30  # 30 requests per minute per IP
 VERSION = "1.1.0"
@@ -95,12 +95,14 @@ class ChatRequest(BaseModel):
 # Response validation models
 class ChatResponse(BaseModel):
     class Plan(BaseModel):
+        model_config = {"populate_by_name": True}
+        
         action: Literal["create_file", "update_file", "patch_file", "delete_file", "read_file", "run_command"]
         path: Optional[str] = None
         content: Optional[str] = None
-        old_content: Optional[str] = None
-        new_content: Optional[str] = None
-        command: Optional[str]
+        old_content: Optional[str] = Field(default=None, alias="oldContent")
+        new_content: Optional[str] = Field(default=None, alias="newContent")
+        command: Optional[str] = None
         summary: str
 
     explanation: str
@@ -115,6 +117,7 @@ class ChatResponse(BaseModel):
                 raise ValueError("The AI returned an invalid plan in the response. Please try again.")
             if p.path and os.path.isabs(p.path):
                 p.path = os.path.relpath(p.path)
+        return self
 
 # The Root route model: used to generate the docs.
 class RootResponse(BaseModel):
@@ -274,10 +277,7 @@ async def chat(request: Request, raw_data: ChatRequest):
                     messages=[
                         SystemMessage(content=SYSTEM_INSTRUCTIONS),
                         UserMessage(content=user_message)
-                    ],
-                    temperature=chat_request.temperature,
-                    max_tokens=chat_request.max_tokens,
-                    top_p=chat_request.top_p
+                    ]
                 ),
                 timeout=LLM_TIMEOUT
             )
@@ -292,21 +292,45 @@ async def chat(request: Request, raw_data: ChatRequest):
         # Extract response text
         try:
             text = response.choices[0].message.content
-            ChatResponse(text)
             print(f"[INFO] Successfully generated response ({len(text)} chars)")
+
+            print(f"Raw response: {text}")
+            
+            # Parse JSON from response (may be wrapped in ```json ... ```)
+            import json
+            import re
+            
+            # Try to extract JSON from markdown code block
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                json_str = text.strip()
+            
+            # Parse and validate
+            parsed_data = json.loads(json_str)
+            validated_response = ChatResponse(**parsed_data)
         except (AttributeError, IndexError, KeyError) as extract_err:
             print(f"[ERROR] Failed to extract response: {extract_err}")
             raise HTTPException(
                 status_code=500,
                 detail="Failed to process model response"
             )
-        except ValidationError:
+        except json.JSONDecodeError as json_err:
+            print(f"[ERROR] Failed to parse JSON from response: {json_err}")
+            print(f"[DEBUG] Raw response: {text[:500]}...")
+            raise HTTPException(
+                status_code=500,
+                detail="The AI returned invalid JSON. Please try again."
+            )
+        except ValidationError as val_err:
+            print(f"[ERROR] Response validation failed: {val_err}")
             raise HTTPException(
                 status_code=500,
                 detail="The AI returned an invalid response. Please try again."
             )
 
-        return {"response": text}
+        return validated_response.model_dump()
 
     except HTTPException:
         # Re-raise HTTP exceptions as-is
