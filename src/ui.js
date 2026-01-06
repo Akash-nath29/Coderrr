@@ -1,7 +1,7 @@
 const chalk = require('chalk');
 const ora = require('ora');
 const inquirer = require('inquirer');
-const debounce = require('./hooks/useDebounce'); // Import our new utility
+const debounce = require('./debounce'); // Use Node.js compatible debounce utility
 
 /**
  * UI utilities for Coderrr CLI
