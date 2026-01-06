@@ -97,11 +97,13 @@ class ChatResponse(BaseModel):
     class Plan(BaseModel):
         model_config = {"populate_by_name": True}
         
-        action: Literal["create_file", "update_file", "patch_file", "delete_file", "read_file", "run_command"]
+        action: Literal["create_file", "update_file", "patch_file", "delete_file", "read_file", "run_command", "create_dir", "delete_dir", "list_dir", "rename_dir"]
         path: Optional[str] = None
         content: Optional[str] = None
         old_content: Optional[str] = Field(default=None, alias="oldContent")
         new_content: Optional[str] = Field(default=None, alias="newContent")
+        old_path: Optional[str] = Field(default=None, alias="oldPath")  # For rename_dir (source path)
+        new_path: Optional[str] = Field(default=None, alias="newPath")  # For rename_dir (destination path)
         command: Optional[str] = None
         summary: str
 
@@ -166,11 +168,12 @@ When the user asks for code changes or tasks, produce a JSON object with this EX
   "explanation": "Brief plain English explanation of what you will do and why",
   "plan": [
     {
-      "action": "create_file" | "update_file" | "patch_file" | "delete_file" | "read_file" | "run_command",
-      "path": "relative/path/to/file",
+      "action": "create_file" | "update_file" | "patch_file" | "delete_file" | "read_file" | "run_command" | "create_dir" | "delete_dir" | "list_dir" | "rename_dir",
+      "path": "relative/path/to/file/or/directory",
       "content": "complete file content for create_file or update_file",
       "oldContent": "content to find (for patch_file)",
       "newContent": "content to replace with (for patch_file)",
+      "newPath": "new path (for rename_dir)",
       "command": "shell command (for run_command)",
       "summary": "one-line description for this step"
     }
@@ -185,9 +188,14 @@ CRITICAL RULES:
 5. For create_file/update_file, include "content" with the COMPLETE file content.
 6. For patch_file, include "oldContent" and "newContent".
 7. For run_command, include "command".
-8. Use relative paths from the project root.
-9. Be explicit and conservative - small, clear steps are better than large complex ones.
-10. For test execution, use run_command with the appropriate test command (npm test, pytest, etc).
+8. For directory operations:
+   - create_dir: just needs "path" for the directory to create
+   - delete_dir: just needs "path" for the empty directory to delete
+   - list_dir: just needs "path" for the directory to list
+   - rename_dir: needs "path" (old path) and "newPath" (new path)
+9. Use relative paths from the project root.
+10. Be explicit and conservative - small, clear steps are better than large complex ones.
+11. For test execution, use run_command with the appropriate test command (npm test, pytest, etc).
 
 Example response:
 ```json
@@ -195,8 +203,13 @@ Example response:
   "explanation": "I will create a new user authentication module with JWT support",
   "plan": [
     {
+      "action": "create_dir",
+      "path": "src/auth",
+      "summary": "Create auth directory"
+    },
+    {
       "action": "create_file",
-      "path": "src/auth.py",
+      "path": "src/auth/index.py",
       "content": "# Authentication module\\nimport jwt\\n\\ndef authenticate(user, password):\\n    # TODO: implement\\n    pass",
       "summary": "Create authentication module"
     },
