@@ -68,20 +68,27 @@ class Agent {
       // Enhance prompt with codebase context
       let enhancedPrompt = prompt;
       if (this.codebaseContext) {
+        const osType = process.platform === 'win32' ? 'Windows' : 
+                       process.platform === 'darwin' ? 'macOS' : 'Linux';
+        
         enhancedPrompt = `${prompt}
+
+SYSTEM ENVIRONMENT:
+Operating System: ${osType}
+Platform: ${process.platform}
+Node Version: ${process.version}
 
 EXISTING PROJECT STRUCTURE:
 Working Directory: ${this.codebaseContext.structure.workingDir}
 Total Files: ${this.codebaseContext.structure.totalFiles}
 Total Directories: ${this.codebaseContext.structure.totalDirectories}
-
 DIRECTORIES:
 ${this.codebaseContext.directories.slice(0, 20).join('\n')}
-
 EXISTING FILES:
 ${this.codebaseContext.files.slice(0, 30).map(f => `- ${f.path} (${f.size} bytes)`).join('\n')}
 
-When editing existing files, use EXACT filenames from the list above. When creating new files, ensure they don't conflict with existing ones.`;
+When editing existing files, use EXACT filenames from the list above. When creating new files, ensure they don't conflict with existing ones.
+For command execution on ${osType}, use appropriate command separators (${osType === 'Windows' ? 'semicolon (;)' : 'ampersand (&&)'}).`;
       }
 
       const spinner = ui.spinner('Thinking...');
