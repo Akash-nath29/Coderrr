@@ -43,6 +43,41 @@ class Agent {
     this.codebaseContext = null; // Cached codebase structure
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
     this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
+    this.maxHistoryLength = options.maxHistoryLength || 10; // Max conversation turns to keep
+  }
+
+  /**
+   * Add a message to conversation history
+   * @param {string} role - 'user' or 'assistant'
+   * @param {string} content - Message content
+   */
+  addToHistory(role, content) {
+    this.conversationHistory.push({ role, content });
+    
+    // Trim history if it exceeds max length (keep most recent)
+    // Each turn = 2 messages (user + assistant), so maxHistoryLength * 2
+    const maxMessages = this.maxHistoryLength * 2;
+    if (this.conversationHistory.length > maxMessages) {
+      this.conversationHistory = this.conversationHistory.slice(-maxMessages);
+    }
+  }
+
+  /**
+   * Clear conversation history (useful for starting fresh)
+   */
+  clearHistory() {
+    this.conversationHistory = [];
+    ui.info('Conversation history cleared');
+  }
+
+  /**
+   * Get formatted conversation history for the backend
+   */
+  getFormattedHistory() {
+    return this.conversationHistory.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
   }
 
   /**
@@ -94,12 +129,20 @@ For command execution on ${osType}, use appropriate command separators (${osType
       const spinner = ui.spinner('Thinking...');
       spinner.start();
 
-      const response = await axios.post(`${this.backendUrl}/chat`, {
+      // Include conversation history for context continuity
+      const requestPayload = {
         prompt: enhancedPrompt,
         temperature: options.temperature || 0.2,
         max_tokens: options.max_tokens || 2000,
         top_p: options.top_p || 1.0
-      });
+      };
+
+      // Add conversation history if available (for multi-turn conversations)
+      if (this.conversationHistory.length > 0) {
+        requestPayload.conversation_history = this.getFormattedHistory();
+      }
+
+      const response = await axios.post(`${this.backendUrl}/chat`, requestPayload);
 
       spinner.stop();
 
@@ -483,16 +526,24 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
   /**
    * Main agent loop - process user request
    */
-  async process(userRequest) {
+  async process(userRequest, options = {}) {
+    const { trackHistory = true } = options;
+    
     try {
       ui.section('Processing Request');
       ui.info(`Request: ${userRequest}`);
+
+      // Add user message to history before processing
+      if (trackHistory) {
+        this.addToHistory('user', userRequest);
+      }
 
       // Get AI response
       const response = await this.chat(userRequest);
 
       // Try to parse JSON plan - handle both object responses (new backend) and string responses
       let plan;
+      let explanation = '';
       try {
         // If response is already an object with explanation/plan, use it directly
         const parsed = typeof response === 'object' && response !== null && response.plan
@@ -501,15 +552,28 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
 
         // Show explanation if present
         if (parsed.explanation) {
+          explanation = parsed.explanation;
           ui.section('Plan');
           console.log(parsed.explanation);
           ui.space();
         }
 
         plan = parsed.plan;
+        
+        // Add assistant response to history (summarized for context efficiency)
+        if (trackHistory) {
+          const historySummary = explanation || 
+            `Executed ${plan?.length || 0} step(s): ${plan?.map(s => s.summary || s.action).join(', ')}`;
+          this.addToHistory('assistant', historySummary);
+        }
       } catch (error) {
         ui.warning('Could not parse structured plan from response');
         console.log(response);
+        
+        // Still add to history even if parsing failed
+        if (trackHistory) {
+          this.addToHistory('assistant', response.substring(0, 500));
+        }
 
         const shouldContinue = await ui.confirm('Try manual execution mode?', false);
         if (!shouldContinue) {
@@ -538,11 +602,12 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
   }
 
   /**
-   * Interactive mode - continuous conversation
+   * Interactive mode - continuous conversation with history
    */
   async interactive() {
     ui.showBanner();
     ui.info('Interactive mode - Type your requests or "exit" to quit');
+    ui.info('Commands: "clear" (reset conversation), "history" (show context), "refresh" (rescan codebase)');
     ui.space();
 
     while (true) {
@@ -552,9 +617,54 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         continue;
       }
 
-      if (request.toLowerCase() === 'exit' || request.toLowerCase() === 'quit') {
+      const command = request.toLowerCase().trim();
+      
+      // Handle special commands
+      if (command === 'exit' || command === 'quit') {
         ui.info('Goodbye! 👋');
         break;
+      }
+      
+      if (command === 'clear' || command === 'reset') {
+        this.clearHistory();
+        ui.success('Starting fresh conversation');
+        ui.space();
+        continue;
+      }
+      
+      if (command === 'history') {
+        if (this.conversationHistory.length === 0) {
+          ui.info('No conversation history yet');
+        } else {
+          ui.section(`Conversation History (${this.conversationHistory.length} messages)`);
+          this.conversationHistory.forEach((msg, i) => {
+            const prefix = msg.role === 'user' ? '👤 You:' : '🤖 Coderrr:';
+            const content = msg.content.length > 100 
+              ? msg.content.substring(0, 100) + '...' 
+              : msg.content;
+            console.log(`  ${i + 1}. ${prefix} ${content}`);
+          });
+        }
+        ui.space();
+        continue;
+      }
+      
+      if (command === 'refresh') {
+        this.refreshCodebase();
+        ui.space();
+        continue;
+      }
+      
+      if (command === 'help') {
+        ui.section('Available Commands');
+        console.log('  exit, quit    - Exit interactive mode');
+        console.log('  clear, reset  - Clear conversation history');
+        console.log('  history       - Show conversation history');
+        console.log('  refresh       - Rescan the codebase');
+        console.log('  help          - Show this help message');
+        console.log('  Or just type your coding request!');
+        ui.space();
+        continue;
       }
 
       await this.process(request);

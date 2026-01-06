@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator, validator, ValidationErr
 from typing import Optional, Literal, List
 from dotenv import load_dotenv
 import asyncio
+from typing import Optional, List
 
 load_dotenv()
 
@@ -57,12 +58,19 @@ except Exception as e:
     raise RuntimeError(f"Failed to initialize AI client: {e}")
 
 
+# Conversation history message model
+class ConversationMessage(BaseModel):
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., min_length=1, max_length=5000)
+
+
 # Request validation models
 class ChatRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=MAX_PROMPT_LENGTH)
     temperature: Optional[float] = Field(default=0.2, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=2000, ge=1, le=4000)
     top_p: Optional[float] = Field(default=1.0, ge=0.0, le=1.0)
+    conversation_history: Optional[List[ConversationMessage]] = Field(default=None, max_items=20)
 
     @validator('prompt')
     def validate_prompt(cls, v):
@@ -279,13 +287,26 @@ async def chat(request: Request, raw_data: ChatRequest):
                 status_code=400,
                 detail=f"Invalid request format: {str(parse_error)}"
             )
-
-        # Build user message
+        
+        # Build messages list starting with system instructions
+        messages = [SystemMessage(content=SYSTEM_INSTRUCTIONS)]
+        
+        # Add conversation history if provided (for multi-turn context)
+        if chat_request.conversation_history:
+            for hist_msg in chat_request.conversation_history:
+                if hist_msg.role == "user":
+                    messages.append(UserMessage(content=f"Previous user request: {hist_msg.content}"))
+                else:  # assistant
+                    messages.append(UserMessage(content=f"Previous assistant response summary: {hist_msg.content}"))
+            print(f"[DEBUG] Including {len(chat_request.conversation_history)} history messages")
+        
+        # Build current user message
         user_message = f"User request: {chat_request.prompt}\n\nPlease output a JSON object with explanation and plan as described."
-
+        messages.append(UserMessage(content=user_message))
+        
         print(f"[INFO] Processing request from {client_ip}")
-        print(f"[DEBUG] Prompt length: {len(chat_request.prompt)} chars")
-
+        print(f"[DEBUG] Prompt length: {len(chat_request.prompt)} chars, Total messages: {len(messages)}")
+        
         # Call LLM with timeout
         try:
             response = await asyncio.wait_for(
