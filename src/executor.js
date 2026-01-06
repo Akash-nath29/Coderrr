@@ -13,6 +13,24 @@ class CommandExecutor {
     this.history = [];
   }
 
+  // Add this utility function at the top of the class
+  getCommandSeparator() {
+    // Returns the appropriate command separator based on OS
+    return process.platform === 'win32' ? ';' : '&&';
+  }
+
+  // Add this method to normalize commands based on OS
+  normalizeCommand(command) {
+    const isWindows = process.platform === 'win32';
+    
+    if (isWindows) {
+      // Replace && with ; for Windows PowerShell
+      return command.replace(/&&/g, ';');
+    }
+    // Keep && for Unix-like systems
+    return command;
+  }
+
   /**
    * Execute a shell command with user permission
    */
@@ -23,8 +41,11 @@ class CommandExecutor {
       shell = process.platform === 'win32' ? 'powershell.exe' : '/bin/bash'
     } = options;
 
-    ui.displayCommand(command);
-
+    // Normalize command based on OS
+    const normalizedCommand = this.normalizeCommand(command);
+    
+    ui.displayCommand(normalizedCommand);
+    
     // Ask for permission if required
     if (requirePermission) {
       const confirmed = await ui.confirm('Execute this command?', false);
@@ -41,25 +62,24 @@ class CommandExecutor {
       const startTime = Date.now();
       let stdout = '';
       let stderr = '';
-
-      const child = spawn(command, {
+      const child = spawn(normalizedCommand, {
         cwd,
         shell,
         stdio: ['inherit', 'pipe', 'pipe']
       });
-
+      
       child.stdout.on('data', (data) => {
         const text = data.toString();
         stdout += text;
         process.stdout.write(text);
       });
-
+      
       child.stderr.on('data', (data) => {
         const text = data.toString();
         stderr += text;
         process.stderr.write(text);
       });
-
+      
       child.on('close', (code) => {
         const duration = Date.now() - startTime;
         const result = {
@@ -68,26 +88,23 @@ class CommandExecutor {
           stdout,
           stderr,
           duration,
-          command
+          command: normalizedCommand
         };
-
         this.history.push(result);
-
         if (code === 0) {
           ui.success(`Command completed successfully (${duration}ms)`);
         } else {
           ui.error(`Command failed with exit code ${code}`);
         }
-
         resolve(result);
       });
-
+      
       child.on('error', (error) => {
         ui.error(`Failed to execute command: ${error.message}`);
         resolve({
           success: false,
           error: error.message,
-          command
+          command: normalizedCommand
         });
       });
     });
