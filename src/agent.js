@@ -477,9 +477,9 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
 
     const testCommands = [
       { cmd: 'npm test', file: 'package.json' },
+      { cmd: 'npx jest', file: 'jest.config.js' },
+      { cmd: 'npx jest', file: 'jest.config.ts' },
       { cmd: 'pytest', file: 'pytest.ini' },
-      { cmd: 'pytest', file: 'tests/' },
-      { cmd: 'python -m pytest', file: 'tests/' },
       { cmd: 'cargo test', file: 'Cargo.toml' },
       { cmd: 'go test ./...', file: 'go.mod' },
       { cmd: 'mvn test', file: 'pom.xml' },
@@ -493,6 +493,32 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
       if (fs.existsSync(filePath)) {
         testCommand = cmd;
         break;
+      }
+    }
+
+    if (!testCommand) {
+      const testDirs = ['tests', 'test'];
+      for (const dir of testDirs) {
+        const dirPath = path.join(this.workingDir, dir);
+        if (fs.existsSync(dirPath)) {
+          try {
+            const stats = fs.statSync(dirPath);
+            if (stats.isDirectory()) {
+              const files = fs.readdirSync(dirPath);
+              // Check for JS/TS files -> Jest
+              if (files.some(f => /\.(js|ts|jsx|tsx)$/.test(f))) {
+                testCommand = 'npx jest';
+                break;
+              }
+              if (files.some(f => /\.py$/.test(f))) {
+                testCommand = 'pytest';
+                break;
+              }
+            }
+          } catch (e) {
+            console.log(e);
+          }
+        }
       }
     }
 

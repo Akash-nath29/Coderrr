@@ -84,6 +84,16 @@ npm install -g coderrr-cli
 
 That's it! The CLI comes pre-configured with a hosted backend.
 
+## Prerequisites
+
+To run Coderrr locally from source or contribute to the project, ensure you have:
+
+- Node.js >= 16.x
+- npm (comes with Node.js)
+- Python >= 3.8
+- pip
+- Git
+
 ### Usage
 
 Navigate to any folder and start coding:
@@ -257,7 +267,7 @@ Coderrr/
 └── .env                     # Environment configuration
 ```
 
-### Backend (Python/FastAPI)
+### Backend (FastAPI)
 
 Handles AI model communication, request processing, and JSON schema enforcement. Runs on port 5000 by default.
 
@@ -302,6 +312,74 @@ Coderrr automatically detects and runs tests for:
 - **Go** - go test
 - **Rust** - cargo test
 - **Java** - Maven (mvn test) or Gradle (gradle test)
+
+---
+## Local Development Setup (For Contributors)
+
+This section explains how to run Coderrr locally from source for development or contributions.
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/Akash-nath29/Coderrr.git
+cd Coderrr
+```
+### 2. Backend Setup (FastAPI)
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+Run the backend server:
+```bash
+uvicorn main:app --reload --port 5000
+```
+Backend will be available at:
+```bash
+http://localhost:5000
+```
+### 3. CLI Setup (Node.js)
+From the project root:
+```bash
+npm install
+npm link
+```
+This allows you to run the local CLI using:
+```bash
+coderrr
+```
+### 4. Configure CLI to Use Local Backend
+Create a user config file:
+```bash
+mkdir -p ~/.coderrr
+echo "CODERRR_BACKEND=http://localhost:5000" > ~/.coderrr/.env
+```
+Or run directly:
+```bash
+coderrr --backend http://localhost:5000
+```
+### 5. Verify Local Setup
+```bash
+cd any-project
+coderrr
+```
+
+---
+## Troubleshooting
+
+### Backend not reachable
+- Ensure FastAPI is running on port 5000
+- Check `CODERRR_BACKEND` value
+
+### `coderrr` command not found
+- Run `npm link` again
+- Restart terminal
+
+### Python dependency errors
+- Ensure virtual environment is activated
+- Re-run `pip install -r requirements.txt`   
 
 ---
 
