@@ -1,15 +1,12 @@
-import os
 import time
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, model_validator, validator, ValidationError
-from typing import Optional, Literal, List
-from dotenv import load_dotenv
+from pydantic import ValidationError
 import asyncio
-from typing import Optional, List
+from config import get_settings # Function that returns the cached Settings instance with env vars and defaults
+from schemas import * # Pydantic schemas for request/response models, kept separate from config
 
-load_dotenv()
-
+settings = get_settings()
 # Azure AI Inference SDK for GitHub Models
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
@@ -25,126 +22,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configuration
-TOKEN = os.getenv("GITHUB_TOKEN")
-ENDPOINT = os.getenv("GITHUB_MODELS_ENDPOINT", "https://models.github.ai/inference")
-MODEL_NAME = os.getenv("GITHUB_MODEL", "openai/gpt-4o")
-
-# Security Configuration
-MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "10000"))  # 10k chars
-MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE", "50000"))  # 50k chars total
-LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "1200"))  # 60 seconds
-RATE_LIMIT_WINDOW = 60  # 1 minute
-RATE_LIMIT_MAX_REQUESTS = 30  # 30 requests per minute per IP
-VERSION = "1.1.0"
-RATE_LIMIT = f"{RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s"
-
 # Rate limiting store (in-memory, production should use Redis)
 rate_limit_store = {}
 
 # Validate GitHub token on startup
-if not TOKEN:
+if not settings.token:
     raise RuntimeError("GITHUB_TOKEN environment variable is required but not set")
 
 # Initialize client with error handling
 try:
     client = ChatCompletionsClient(
-        endpoint=ENDPOINT,
-        credential=AzureKeyCredential(TOKEN),
+        endpoint=settings.endpoint,
+        credential=AzureKeyCredential(settings.token),
     )
-    print(f"[INFO] Successfully initialized client with model: {MODEL_NAME}")
+    print(f"[INFO] Successfully initialized client with model: {settings.model_name}")
 except Exception as e:
     print(f"[ERROR] Failed to initialize AI client: {e}")
     raise RuntimeError(f"Failed to initialize AI client: {e}")
-
-
-# Conversation history message model
-class ConversationMessage(BaseModel):
-    role: str = Field(..., pattern="^(user|assistant)$")
-    content: str = Field(..., min_length=1, max_length=5000)
-
-
-# Request validation models
-class ChatRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, max_length=MAX_PROMPT_LENGTH)
-    temperature: Optional[float] = Field(default=0.2, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=2000, ge=1, le=4000)
-    top_p: Optional[float] = Field(default=1.0, ge=0.0, le=1.0)
-    conversation_history: Optional[List[ConversationMessage]] = Field(default=None, max_items=20)
-
-    @validator('prompt')
-    def validate_prompt(cls, v):
-        # Trim whitespace
-        v = v.strip()
-
-        # Check if empty after trimming
-        if not v:
-            raise ValueError("Prompt cannot be empty or only whitespace")
-
-        # Check for suspicious patterns (basic injection prevention)
-        suspicious_patterns = [
-            "ignore previous instructions",
-            "disregard system prompt",
-            "override instructions",
-            "bypass security"
-        ]
-
-        v_lower = v.lower()
-        for pattern in suspicious_patterns:
-            if pattern in v_lower:
-                raise ValueError(f"Prompt contains suspicious pattern: {pattern}")
-
-        return v
-
-    class Config:
-        # Validate on assignment
-        validate_assignment = True
-
-# Response validation models
-class ChatResponse(BaseModel):
-    class Plan(BaseModel):
-        model_config = {"populate_by_name": True}
-        
-        action: Literal["create_file", "update_file", "patch_file", "delete_file", "read_file", "run_command", "create_dir", "delete_dir", "list_dir", "rename_dir"]
-        path: Optional[str] = None
-        content: Optional[str] = None
-        old_content: Optional[str] = Field(default=None, alias="oldContent")
-        new_content: Optional[str] = Field(default=None, alias="newContent")
-        old_path: Optional[str] = Field(default=None, alias="oldPath")  # For rename_dir (source path)
-        new_path: Optional[str] = Field(default=None, alias="newPath")  # For rename_dir (destination path)
-        command: Optional[str] = None
-        summary: str
-
-    explanation: str
-    plan: List[Plan]
-
-    @model_validator(mode="after")
-    def check_fields(self):
-        for p in self.plan:
-            if (p.action == "create_file" or p.action == "update_file") and not p.content:
-                raise ValueError("The AI returned an invalid plan in the response. Please try again.")
-            if p.action == "patch_file" and not (p.old_content or p.new_content):
-                raise ValueError("The AI returned an invalid plan in the response. Please try again.")
-            if p.path and os.path.isabs(p.path):
-                p.path = os.path.relpath(p.path)
-        return self
-
-# The Root route model: used to generate the docs.
-class RootResponse(BaseModel):
-    class Security(BaseModel):
-        max_prompt_length: int = MAX_PROMPT_LENGTH
-        rate_limit: str = RATE_LIMIT
-        llm_timeout: str = f"{LLM_TIMEOUT}s"
-    message: str
-    model: str = MODEL_NAME
-    version: str = VERSION
-    security: Security
-
-# HealthCheck route model: used to generate the docs.
-class HealthResponse(BaseModel):
-    status: str = "healthy"
-    model: str = MODEL_NAME
-    token_configured: bool
 
 def check_rate_limit(ip: str) -> bool:
     """Simple in-memory rate limiting (use Redis in production)"""
@@ -153,11 +47,11 @@ def check_rate_limit(ip: str) -> bool:
     # Clean up old entries
     rate_limit_store[ip] = [
         timestamp for timestamp in rate_limit_store.get(ip, [])
-        if current_time - timestamp < RATE_LIMIT_WINDOW
+        if current_time - timestamp < settings.rate_limit_window
     ]
 
     # Check if under limit
-    if len(rate_limit_store.get(ip, [])) >= RATE_LIMIT_MAX_REQUESTS:
+    if len(rate_limit_store.get(ip, [])) >= settings.rate_limit_max_requests:
         return False
 
     # Add current request
@@ -242,12 +136,12 @@ Now respond to the user's request with a valid JSON plan.
 def root():
     return {
         "message": "Coderrr backend is running 🚀",
-        "model": MODEL_NAME,
-        "version": VERSION,
+        "model": settings.model_name,
+        "version": settings.version,
         "security": {
-            "max_prompt_length": MAX_PROMPT_LENGTH,
-            "rate_limit": RATE_LIMIT,
-            "llm_timeout": f"{LLM_TIMEOUT}s"
+            "max_prompt_length": settings.max_prompt_length,
+            "rate_limit": settings.rate_limit,
+            "llm_timeout": f"{settings.llm_timeout}s"
         }
     }
 
@@ -262,15 +156,15 @@ async def chat(request: Request, raw_data: ChatRequest):
         if not check_rate_limit(client_ip):
             raise HTTPException(
                 status_code=429,
-                detail=f"Rate limit exceeded. Maximum {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW} seconds."
+                detail=f"Rate limit exceeded. Maximum {settings.rate_limit_max_requests} requests per {settings.rate_limit_window} seconds."
             )
 
         # Get raw body for size check
         body_bytes = await request.body()
-        if len(body_bytes) > MAX_REQUEST_SIZE:
+        if len(body_bytes) > settings.max_request_size:
             raise HTTPException(
                 status_code=413,
-                detail=f"Request body too large. Maximum size: {MAX_REQUEST_SIZE} bytes"
+                detail=f"Request body too large. Maximum size: {settings.max_request_size} bytes"
             )
 
         # Parse and validate request
@@ -287,10 +181,10 @@ async def chat(request: Request, raw_data: ChatRequest):
                 status_code=400,
                 detail=f"Invalid request format: {str(parse_error)}"
             )
-        
+
         # Build messages list starting with system instructions
         messages = [SystemMessage(content=SYSTEM_INSTRUCTIONS)]
-        
+
         # Add conversation history if provided (for multi-turn context)
         if chat_request.conversation_history:
             for hist_msg in chat_request.conversation_history:
@@ -299,33 +193,33 @@ async def chat(request: Request, raw_data: ChatRequest):
                 else:  # assistant
                     messages.append(UserMessage(content=f"Previous assistant response summary: {hist_msg.content}"))
             print(f"[DEBUG] Including {len(chat_request.conversation_history)} history messages")
-        
+
         # Build current user message
         user_message = f"User request: {chat_request.prompt}\n\nPlease output a JSON object with explanation and plan as described."
         messages.append(UserMessage(content=user_message))
-        
+
         print(f"[INFO] Processing request from {client_ip}")
         print(f"[DEBUG] Prompt length: {len(chat_request.prompt)} chars, Total messages: {len(messages)}")
-        
+
         # Call LLM with timeout
         try:
             response = await asyncio.wait_for(
                 asyncio.to_thread(
                     client.complete,
-                    model=MODEL_NAME,
+                    model=settings.model_name,
                     messages=[
                         SystemMessage(content=SYSTEM_INSTRUCTIONS),
                         UserMessage(content=user_message)
                     ]
                 ),
-                timeout=LLM_TIMEOUT
+                timeout=settings.llm_timeout
             )
 
         except asyncio.TimeoutError:
-            print(f"[ERROR] LLM request timed out after {LLM_TIMEOUT}s")
+            print(f"[ERROR] LLM request timed out after {settings.llm_timeout}s")
             raise HTTPException(
                 status_code=504,
-                detail=f"Request timed out after {LLM_TIMEOUT} seconds"
+                detail=f"Request timed out after {settings.llm_timeout} seconds"
             )
 
         # Extract response text
@@ -334,18 +228,18 @@ async def chat(request: Request, raw_data: ChatRequest):
             print(f"[INFO] Successfully generated response ({len(text)} chars)")
 
             print(f"Raw response: {text}")
-            
+
             # Parse JSON from response (may be wrapped in ```json ... ```)
             import json
             import re
-            
+
             # Try to extract JSON from markdown code block
             json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
             if json_match:
                 json_str = json_match.group(1)
             else:
                 json_str = text.strip()
-            
+
             # Parse and validate
             parsed_data = json.loads(json_str)
             validated_response = ChatResponse(**parsed_data)
@@ -392,6 +286,6 @@ def health_check():
     """Health check endpoint for monitoring"""
     return {
         "status": "healthy",
-        "model": MODEL_NAME,
-        "token_configured": bool(TOKEN)
+        "model": settings.model_name,
+        "token_configured": bool(settings.token)
     }
