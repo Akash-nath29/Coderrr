@@ -30,7 +30,7 @@ app.add_middleware(
 # =========================
 TOKEN = os.getenv("GITHUB_TOKEN")
 ENDPOINT = os.getenv("GITHUB_MODELS_ENDPOINT", "https://models.github.ai/inference")
-MODEL_NAME = os.getenv("GITHUB_MODEL", "openai/gpt-4o")
+MODEL_NAME = os.getenv("GITHUB_MODEL", "microsoft/Phi-4-reasoning")
 
 MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "10000"))
 MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE", "50000"))
@@ -181,9 +181,36 @@ def check_rate_limit(ip: str) -> bool:
 # =========================
 # System Prompt
 # =========================
-SYSTEM_INSTRUCTIONS = """
-You are Coderrr, a coding assistant that MUST respond with a JSON execution plan.
-Follow the schema strictly and return valid JSON only.
+SYSTEM_INSTRUCTIONS = """You are Coderrr, an AI coding assistant. You MUST respond with ONLY a valid JSON object (no markdown, no extra text).
+
+The JSON MUST follow this exact schema:
+{
+  "explanation": "Brief explanation of what you will do",
+  "plan": [
+    {
+      "action": "ACTION_TYPE",
+      "path": "file/path if applicable",
+      "content": "file content if creating/updating files",
+      "command": "shell command if action is run_command",
+      "summary": "Brief description of this step"
+    }
+  ]
+}
+
+Valid ACTION_TYPE values:
+- "create_file": Create a new file (requires path, content, summary)
+- "update_file": Replace entire file content (requires path, content, summary)
+- "patch_file": Modify part of a file (requires path, oldContent, newContent, summary)
+- "delete_file": Delete a file (requires path, summary)
+- "run_command": Execute a shell command (requires command, summary)
+- "create_dir": Create a directory (requires path, summary)
+
+IMPORTANT RULES:
+1. Return ONLY the JSON object, no markdown code blocks, no explanations outside JSON
+2. The "explanation" field is REQUIRED
+3. The "plan" array is REQUIRED (can be empty if no actions needed)
+4. Each plan item MUST have "action" and "summary" fields
+5. For run_command, use PowerShell syntax on Windows
 """
 
 
@@ -245,6 +272,8 @@ async def chat(request: Request, raw_data: ChatRequest):
                 client.complete,
                 model=MODEL_NAME,
                 messages=messages,
+                temperature=1,
+                top_p=raw_data.top_p,
             ),
             timeout=LLM_TIMEOUT,
         )
@@ -254,14 +283,26 @@ async def chat(request: Request, raw_data: ChatRequest):
     import json, re
 
     text = response.choices[0].message.content
+    print(f"[DEBUG] Raw model response ({len(text)} chars):")
+    print(f"[DEBUG] {text[:500]}{'...' if len(text) > 500 else ''}")
+    
     match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.S)
     json_str = match.group(1) if match else text
 
     try:
         parsed = json.loads(json_str)
         return ChatResponse(**parsed).model_dump()
-    except Exception:
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] JSON parsing failed: {e}")
+        print(f"[ERROR] Attempted to parse: {json_str[:300]}...")
         raise HTTPException(
             status_code=500,
-            detail="The AI returned an invalid response. Please try again.",
+            detail=f"AI returned invalid JSON: {str(e)[:100]}",
+        )
+    except Exception as e:
+        print(f"[ERROR] Response validation failed: {e}")
+        print(f"[ERROR] Parsed JSON: {json_str[:300]}...")
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI response validation failed: {str(e)[:100]}",
         )
