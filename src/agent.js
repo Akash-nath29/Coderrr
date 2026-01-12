@@ -7,6 +7,7 @@ const CommandExecutor = require('./executor').CommandExecutor;
 const TodoManager = require('./todoManager');
 const CodebaseScanner = require('./codebaseScanner');
 const GitOperations = require('./gitOps');
+const { sanitizeAxiosError, formatUserError, createSafeError, isNetworkError } = require('./errorHandler');
 
 /**
  * Core AI Agent that communicates with backend and executes plans
@@ -53,7 +54,7 @@ class Agent {
    */
   addToHistory(role, content) {
     this.conversationHistory.push({ role, content });
-    
+
     // Trim history if it exceeds max length (keep most recent)
     // Each turn = 2 messages (user + assistant), so maxHistoryLength * 2
     const maxMessages = this.maxHistoryLength * 2;
@@ -103,9 +104,9 @@ class Agent {
       // Enhance prompt with codebase context
       let enhancedPrompt = prompt;
       if (this.codebaseContext) {
-        const osType = process.platform === 'win32' ? 'Windows' : 
-                       process.platform === 'darwin' ? 'macOS' : 'Linux';
-        
+        const osType = process.platform === 'win32' ? 'Windows' :
+          process.platform === 'darwin' ? 'macOS' : 'Linux';
+
         enhancedPrompt = `${prompt}
 
 SYSTEM ENVIRONMENT:
@@ -153,14 +154,20 @@ For command execution on ${osType}, use appropriate command separators (${osType
       // Handle both new format (direct object with explanation/plan) and legacy format (wrapped in response)
       return response.data.response || response.data;
     } catch (error) {
-      if (error.code === 'ECONNREFUSED') {
+      // Sanitize error to prevent logging sensitive data
+      const sanitized = sanitizeAxiosError(error);
+      const userMessage = formatUserError(sanitized, this.backendUrl);
+
+      if (isNetworkError(error)) {
         ui.error(`Cannot connect to backend at ${this.backendUrl}`);
         ui.warning('Make sure the backend is running:');
         console.log('  uvicorn main:app --reload --port 5000');
       } else {
-        ui.error(`Failed to communicate with backend: ${error.message}`);
+        ui.error(`Failed to communicate with backend: ${userMessage}`);
       }
-      throw error;
+
+      // Throw a sanitized error, not the raw Axios error with sensitive data
+      throw createSafeError(error);
     }
   }
 
@@ -554,7 +561,7 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
    */
   async process(userRequest, options = {}) {
     const { trackHistory = true } = options;
-    
+
     try {
       ui.section('Processing Request');
       ui.info(`Request: ${userRequest}`);
@@ -585,17 +592,17 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         }
 
         plan = parsed.plan;
-        
+
         // Add assistant response to history (summarized for context efficiency)
         if (trackHistory) {
-          const historySummary = explanation || 
+          const historySummary = explanation ||
             `Executed ${plan?.length || 0} step(s): ${plan?.map(s => s.summary || s.action).join(', ')}`;
           this.addToHistory('assistant', historySummary);
         }
       } catch (error) {
         ui.warning('Could not parse structured plan from response');
         console.log(response);
-        
+
         // Still add to history even if parsing failed
         if (trackHistory) {
           this.addToHistory('assistant', response.substring(0, 500));
@@ -644,20 +651,20 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
       }
 
       const command = request.toLowerCase().trim();
-      
+
       // Handle special commands
       if (command === 'exit' || command === 'quit') {
         ui.info('Goodbye! 👋');
         break;
       }
-      
+
       if (command === 'clear' || command === 'reset') {
         this.clearHistory();
         ui.success('Starting fresh conversation');
         ui.space();
         continue;
       }
-      
+
       if (command === 'history') {
         if (this.conversationHistory.length === 0) {
           ui.info('No conversation history yet');
@@ -665,8 +672,8 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
           ui.section(`Conversation History (${this.conversationHistory.length} messages)`);
           this.conversationHistory.forEach((msg, i) => {
             const prefix = msg.role === 'user' ? '👤 You:' : '🤖 Coderrr:';
-            const content = msg.content.length > 100 
-              ? msg.content.substring(0, 100) + '...' 
+            const content = msg.content.length > 100
+              ? msg.content.substring(0, 100) + '...'
               : msg.content;
             console.log(`  ${i + 1}. ${prefix} ${content}`);
           });
@@ -674,13 +681,13 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         ui.space();
         continue;
       }
-      
+
       if (command === 'refresh') {
         this.refreshCodebase();
         ui.space();
         continue;
       }
-      
+
       if (command === 'help') {
         ui.section('Available Commands');
         console.log('  exit, quit    - Exit interactive mode');
@@ -693,7 +700,13 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         continue;
       }
 
-      await this.process(request);
+      try {
+        await this.process(request);
+      } catch (error) {
+        // Error is already handled and displayed in process()
+        // Just continue the interactive loop without crashing
+        ui.warning('You can continue with a new request or type "exit" to quit.');
+      }
       ui.space();
     }
   }
