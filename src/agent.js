@@ -8,6 +8,8 @@ const TodoManager = require('./todoManager');
 const CodebaseScanner = require('./codebaseScanner');
 const GitOperations = require('./gitOps');
 const { sanitizeAxiosError, formatUserError, createSafeError, isNetworkError } = require('./errorHandler');
+const configManager = require('./configManager');
+const { getProvider } = require('./providers');
 
 /**
  * Core AI Agent that communicates with backend and executes plans
@@ -45,6 +47,9 @@ class Agent {
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
     this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
     this.maxHistoryLength = options.maxHistoryLength || 10; // Max conversation turns to keep
+
+    // Load user provider configuration
+    this.providerConfig = configManager.getConfig();
   }
 
   /**
@@ -137,6 +142,16 @@ For command execution on ${osType}, use appropriate command separators (${osType
         max_tokens: options.max_tokens || 2000,
         top_p: options.top_p || 1.0
       };
+
+      // Add provider configuration if user has configured one
+      if (this.providerConfig) {
+        requestPayload.provider = this.providerConfig.provider;
+        requestPayload.api_key = this.providerConfig.apiKey;
+        requestPayload.model = this.providerConfig.model;
+        if (this.providerConfig.endpoint) {
+          requestPayload.endpoint = this.providerConfig.endpoint;
+        }
+      }
 
       // Add conversation history if available (for multi-turn conversations)
       if (this.conversationHistory.length > 0) {

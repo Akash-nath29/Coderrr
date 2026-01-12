@@ -9,7 +9,11 @@ const { program } = require('commander');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const inquirer = require('inquirer');
+const chalk = require('chalk');
 const Agent = require('../src/agent');
+const configManager = require('../src/configManager');
+const { getProviderChoices, getModelChoices, getProvider, validateApiKey } = require('../src/providers');
 
 // Optional: Load .env from user's home directory (for advanced users who want custom backend)
 const homeConfigPath = path.join(os.homedir(), '.coderrr', '.env');
@@ -27,6 +31,141 @@ program
   .name('coderrr')
   .description('AI Coding Agent CLI - Your personal coding assistant')
   .version('1.0.0');
+
+// Config command - configure provider and API key
+program
+  .command('config')
+  .description('Configure AI provider, API key, and model')
+  .option('--show', 'Show current configuration')
+  .option('--clear', 'Clear saved configuration')
+  .action(async (options) => {
+    // Show current config
+    if (options.show) {
+      const summary = configManager.getConfigSummary();
+      if (!summary) {
+        console.log(chalk.yellow('\n⚠ No configuration found.'));
+        console.log(chalk.gray('Run `coderrr config` to set up your provider.\n'));
+      } else {
+        console.log(chalk.cyan.bold('\n🔧 Current Configuration\n'));
+        console.log(`  Provider: ${chalk.white(summary.provider)}`);
+        console.log(`  Model:    ${chalk.white(summary.model)}`);
+        console.log(`  API Key:  ${chalk.gray(summary.apiKey)}`);
+        if (summary.endpoint !== 'Default') {
+          console.log(`  Endpoint: ${chalk.gray(summary.endpoint)}`);
+        }
+        console.log(`\n  Config file: ${chalk.gray(configManager.getConfigPath())}\n`);
+      }
+      return;
+    }
+
+    // Clear config
+    if (options.clear) {
+      configManager.clearConfig();
+      console.log(chalk.green('✓ Configuration cleared.\n'));
+      return;
+    }
+
+    // Interactive configuration
+    console.log(chalk.cyan.bold('\n🔧 Coderrr Configuration\n'));
+    console.log(chalk.gray('Configure your AI provider and API key.\n'));
+
+    try {
+      // Step 1: Select provider
+      const { provider } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'provider',
+          message: 'Select your AI provider:',
+          choices: getProviderChoices()
+        }
+      ]);
+
+      const providerInfo = getProvider(provider);
+
+      // Step 2: API Key (if required)
+      let apiKey = null;
+      if (providerInfo.requiresKey) {
+        console.log(chalk.gray(`\n  ${providerInfo.name} requires an API key.`));
+        if (providerInfo.keyEnvVar) {
+          console.log(chalk.gray(`  You can also set ${providerInfo.keyEnvVar} environment variable.\n`));
+        }
+
+        const { key } = await inquirer.prompt([
+          {
+            type: 'password',
+            name: 'key',
+            message: `Enter your ${providerInfo.name} API key:`,
+            mask: '*',
+            validate: (input) => {
+              const result = validateApiKey(provider, input);
+              return result.valid ? true : result.error;
+            }
+          }
+        ]);
+        apiKey = key;
+      } else {
+        console.log(chalk.green(`\n  ✓ ${providerInfo.name} doesn't require an API key.\n`));
+      }
+
+      // Step 2.5: Custom endpoint (for Ollama)
+      let endpoint = providerInfo.endpoint || null;
+      if (providerInfo.customEndpoint) {
+        const { customEndpoint } = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'customEndpoint',
+            message: 'Enter Ollama endpoint:',
+            default: providerInfo.endpoint
+          }
+        ]);
+        endpoint = customEndpoint;
+
+        // Show note for Ollama
+        if (providerInfo.note) {
+          console.log(chalk.yellow(`\n  ⚠ ${providerInfo.note}\n`));
+        }
+      }
+
+      // Step 3: Select model
+      const modelChoices = getModelChoices(provider);
+      const { model } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'model',
+          message: 'Select a model:',
+          choices: modelChoices,
+          default: providerInfo.defaultModel
+        }
+      ]);
+
+      // Save configuration
+      const config = {
+        provider,
+        apiKey,
+        model,
+        endpoint
+      };
+
+      configManager.saveConfig(config);
+
+      console.log(chalk.green('\n✓ Configuration saved!\n'));
+      console.log(`  Provider: ${chalk.white(providerInfo.name)}`);
+      console.log(`  Model:    ${chalk.white(model)}`);
+      if (apiKey) {
+        console.log(`  API Key:  ${chalk.gray(configManager.maskApiKey(apiKey))}`);
+      }
+      console.log(`\n  Config file: ${chalk.gray(configManager.getConfigPath())}\n`);
+
+      console.log(chalk.cyan('Run `coderrr` to start using your configured provider!\n'));
+
+    } catch (error) {
+      if (error.name === 'ExitPromptError') {
+        console.log(chalk.yellow('\n⚠ Configuration cancelled.\n'));
+      } else {
+        console.error(chalk.red(`\n✗ Error: ${error.message}\n`));
+      }
+    }
+  });
 
 program
   .command('start')
