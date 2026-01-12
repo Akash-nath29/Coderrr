@@ -3,3 +3,4 @@ uvicorn[standard]==0.24.0
 python-dotenv==1.0.0
 azure-ai-inference==1.0.0b1
 pydantic==2.5.0
+pydantic-settings==2.12.0

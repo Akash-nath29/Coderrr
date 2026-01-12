@@ -1,13 +1,15 @@
-import os
 import time
 import asyncio
 from typing import Optional, List, Literal
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, validator, model_validator, ValidationError
-from dotenv import load_dotenv
+from pydantic import ValidationError
+import asyncio
+from config import get_settings # Function that returns the cached Settings instance with env vars and defaults
+from schemas import * # Pydantic schemas for request/response models, kept separate from config
 
+settings = get_settings()
 # Azure AI Inference SDK for GitHub Models
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
@@ -25,153 +27,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =========================
-# Configuration
-# =========================
-TOKEN = os.getenv("GITHUB_TOKEN")
-ENDPOINT = os.getenv("GITHUB_MODELS_ENDPOINT", "https://models.github.ai/inference")
-MODEL_NAME = os.getenv("GITHUB_MODEL", "microsoft/Phi-4-reasoning")
-
-MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "10000"))
-MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE", "50000"))
-LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "1200"))
-
-RATE_LIMIT_WINDOW = 60
-RATE_LIMIT_MAX_REQUESTS = 30
-VERSION = "1.1.0"
-RATE_LIMIT = f"{RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s"
-
+# Rate limiting store (in-memory, production should use Redis)
 rate_limit_store = {}
 
-# =========================
-# Configuration validation
-# =========================
-def validate_required_config():
-    if not TOKEN:
-        return {
-            "error": "Missing required configuration: GITHUB_TOKEN",
-            "how_to_fix": [
-                "Set GITHUB_TOKEN as an environment variable",
-                "Or add it to a .env file in the backend directory",
-                "Example:",
-                "  Windows (PowerShell): setx GITHUB_TOKEN your_token_here",
-                "  Linux/macOS: export GITHUB_TOKEN=your_token_here"
-            ]
-        }
-    return None
+# Validate GitHub token on startup
+if not settings.token:
+    raise RuntimeError("GITHUB_TOKEN environment variable is required but not set")
 
+# Initialize client with error handling
+try:
+    client = ChatCompletionsClient(
+        endpoint=settings.endpoint,
+        credential=AzureKeyCredential(settings.token),
+    )
+    print(f"[INFO] Successfully initialized client with model: {settings.model_name}")
+except Exception as e:
+    print(f"[ERROR] Failed to initialize AI client: {e}")
+    raise RuntimeError(f"Failed to initialize AI client: {e}")
 
-# =========================
-# Initialize AI Client (safe)
-# =========================
-client = None
-
-if TOKEN:
-    try:
-        client = ChatCompletionsClient(
-            endpoint=ENDPOINT,
-            credential=AzureKeyCredential(TOKEN),
-        )
-        print(f"[INFO] AI client initialized with model: {MODEL_NAME}")
-    except Exception as e:
-        print(f"[ERROR] Failed to initialize AI client: {e}")
-
-
-# =========================
-# Models
-# =========================
-class ConversationMessage(BaseModel):
-    role: str = Field(..., pattern="^(user|assistant)$")
-    content: str = Field(..., min_length=1, max_length=5000)
-
-
-class ChatRequest(BaseModel):
-    prompt: str = Field(..., min_length=1, max_length=MAX_PROMPT_LENGTH)
-    temperature: Optional[float] = Field(default=0.2, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=2000, ge=1, le=4000)
-    top_p: Optional[float] = Field(default=1.0, ge=0.0, le=1.0)
-    conversation_history: Optional[List[ConversationMessage]] = Field(default=None, max_items=20)
-
-    @validator("prompt")
-    def validate_prompt(cls, v):
-        v = v.strip()
-        if not v:
-            raise ValueError("Prompt cannot be empty")
-
-        suspicious_patterns = [
-            "ignore previous instructions",
-            "disregard system prompt",
-            "override instructions",
-            "bypass security",
-        ]
-
-        for pattern in suspicious_patterns:
-            if pattern in v.lower():
-                raise ValueError(f"Prompt contains suspicious pattern: {pattern}")
-
-        return v
-
-
-class ChatResponse(BaseModel):
-    class Plan(BaseModel):
-        model_config = {"populate_by_name": True}
-
-        action: Literal[
-            "create_file",
-            "update_file",
-            "patch_file",
-            "delete_file",
-            "read_file",
-            "run_command",
-            "create_dir",
-            "delete_dir",
-            "list_dir",
-            "rename_dir",
-        ]
-        path: Optional[str] = None
-        content: Optional[str] = None
-        old_content: Optional[str] = Field(default=None, alias="oldContent")
-        new_content: Optional[str] = Field(default=None, alias="newContent")
-        old_path: Optional[str] = Field(default=None, alias="oldPath")
-        new_path: Optional[str] = Field(default=None, alias="newPath")
-        command: Optional[str] = None
-        summary: str
-
-    explanation: str
-    plan: List[Plan]
-
-    @model_validator(mode="after")
-    def validate_plan(self):
-        for p in self.plan:
-            if p.action in {"create_file", "update_file"} and not p.content:
-                raise ValueError("Invalid AI response: missing file content")
-        return self
-
-
-class RootResponse(BaseModel):
-    message: str
-    model: str
-    version: str
-    security: dict
-
-
-class HealthResponse(BaseModel):
-    status: str
-    model: str
-    token_configured: bool
-
-
-# =========================
-# Rate limiting
-# =========================
 def check_rate_limit(ip: str) -> bool:
     current_time = time.time()
     rate_limit_store[ip] = [
-        t for t in rate_limit_store.get(ip, [])
-        if current_time - t < RATE_LIMIT_WINDOW
+        timestamp for timestamp in rate_limit_store.get(ip, [])
+        if current_time - timestamp < settings.rate_limit_window
     ]
 
-    if len(rate_limit_store.get(ip, [])) >= RATE_LIMIT_MAX_REQUESTS:
+    # Check if under limit
+    if len(rate_limit_store.get(ip, [])) >= settings.rate_limit_max_requests:
         return False
 
     rate_limit_store.setdefault(ip, []).append(current_time)
@@ -221,22 +103,13 @@ IMPORTANT RULES:
 def root():
     return {
         "message": "Coderrr backend is running 🚀",
-        "model": MODEL_NAME,
-        "version": VERSION,
+        "model": settings.model_name,
+        "version": settings.version,
         "security": {
-            "max_prompt_length": MAX_PROMPT_LENGTH,
-            "rate_limit": RATE_LIMIT,
-            "llm_timeout": f"{LLM_TIMEOUT}s",
-        },
-    }
-
-
-@app.get("/health", response_model=HealthResponse)
-def health_check():
-    return {
-        "status": "healthy" if TOKEN else "misconfigured",
-        "model": MODEL_NAME,
-        "token_configured": bool(TOKEN),
+            "max_prompt_length": settings.max_prompt_length,
+            "rate_limit": settings.rate_limit,
+            "llm_timeout": f"{settings.llm_timeout}s"
+        }
     }
 
 

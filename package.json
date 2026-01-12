@@ -1,6 +1,6 @@
 {
   "name": "coderrr-cli",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "AI-powered coding agent that understands natural language requests and autonomously creates, modifies, and manages code across your projects",
   "main": "bin/coderrr.js",
   "bin": {
