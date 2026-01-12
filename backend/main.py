@@ -14,8 +14,17 @@ settings = get_settings()
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
+from dotenv import load_dotenv
 
 load_dotenv()
+
+MODEL_NAME = os.getenv("GITHUB_MODEL", "microsoft/Phi-4-reasoning")
+MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "10000"))
+MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE", "50000"))
+LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "1200"))
+
+RATE_LIMIT_WINDOW = 60
+RATE_LIMIT_MAX_REQUESTS = 30
 
 app = FastAPI(title="Coderrr Backend")
 
@@ -115,9 +124,131 @@ def root():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: Request, raw_data: ChatRequest):
-    config_error = validate_required_config()
-    if config_error:
-        raise HTTPException(status_code=500, detail=config_error)
+    try:
+        # Get client IP for rate limiting
+        client_ip = request.client.host
+
+        # Check rate limit
+        if not check_rate_limit(client_ip):
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded. Maximum {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW} seconds."
+            )
+
+        # Get raw body for size check
+        body_bytes = await request.body()
+        if len(body_bytes) > MAX_REQUEST_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Request body too large. Maximum size: {MAX_REQUEST_SIZE} bytes"
+            )
+
+        # Parse and validate request
+        try:
+            body_json = await request.json()
+            chat_request = ChatRequest(**body_json)
+        except ValueError as ve:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Validation error: {str(ve)}"
+            )
+        except Exception as parse_error:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid request format: {str(parse_error)}"
+            )
+
+        # Build messages list starting with system instructions
+        messages = [SystemMessage(content=SYSTEM_INSTRUCTIONS)]
+
+        # Add conversation history if provided (for multi-turn context)
+        if chat_request.conversation_history:
+            for hist_msg in chat_request.conversation_history:
+                if hist_msg.role == "user":
+                    messages.append(UserMessage(content=f"Previous user request: {hist_msg.content}"))
+                else:  # assistant
+                    messages.append(UserMessage(content=f"Previous assistant response summary: {hist_msg.content}"))
+            print(f"[DEBUG] Including {len(chat_request.conversation_history)} history messages")
+
+        # Build current user message
+        user_message = f"User request: {chat_request.prompt}\n\nPlease output a JSON object with explanation and plan as described."
+        messages.append(UserMessage(content=user_message))
+
+        print(f"[INFO] Processing request from {client_ip}")
+        print(f"[DEBUG] Prompt length: {len(chat_request.prompt)} chars, Total messages: {len(messages)}")
+
+        # Call LLM with timeout
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client.complete,
+                    model=MODEL_NAME,
+                    messages=[
+                        SystemMessage(content=SYSTEM_INSTRUCTIONS),
+                        UserMessage(content=user_message)
+                    ]
+                ),
+                timeout=LLM_TIMEOUT
+            )
+
+        except asyncio.TimeoutError:
+            print(f"[ERROR] LLM request timed out after {LLM_TIMEOUT}s")
+            raise HTTPException(
+                status_code=504,
+                detail=f"Request timed out after {LLM_TIMEOUT} seconds"
+            )
+
+        # Extract response text
+        try:
+            text = response.choices[0].message.content
+            print(f"[INFO] Successfully generated response ({len(text)} chars)")
+
+            print(f"Raw response: {text}")
+
+            # Parse JSON from response (may be wrapped in ```json ... ```)
+            import json
+            import re
+
+            # Try to extract JSON from markdown code block
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                json_str = text.strip()
+
+            # Parse and validate
+            parsed_data = json.loads(json_str)
+            validated_response = ChatResponse(**parsed_data)
+        except (AttributeError, IndexError, KeyError) as extract_err:
+            print(f"[ERROR] Failed to extract response: {extract_err}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to process model response"
+            )
+        except json.JSONDecodeError as json_err:
+            print(f"[ERROR] Failed to parse JSON from response: {json_err}")
+            print(f"[DEBUG] Raw response: {text[:500]}...")
+            raise HTTPException(
+                status_code=500,
+                detail="The AI returned invalid JSON. Please try again."
+            )
+        except ValidationError as val_err:
+            print(f"[ERROR] Response validation failed: {val_err}")
+            raise HTTPException(
+                status_code=500,
+                detail="The AI returned an invalid response. Please try again."
+            )
+
+        return validated_response.model_dump()
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+
+    except Exception as e:
+        # Log error without exposing details to client
+        print(f"[ERROR] Unexpected error in /chat endpoint: {type(e).__name__}")
+        print(f"[ERROR] Error details: {str(e)}")
 
     if not client:
         raise HTTPException(
