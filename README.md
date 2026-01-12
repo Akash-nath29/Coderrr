@@ -76,6 +76,14 @@ Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable pl
 
 ## Installation
 
+## Minimal Quick Start (For First-Time Users)
+
+If you just want to try Coderrr quickly without any configuration, follow these steps:
+
+```bash
+npm install -g coderrr-cli
+cd C:\Coder\Coderrr
+coderrr
 ### Quick Start (Zero Config!)
 
 ```bash
