@@ -239,6 +239,26 @@ coderrr start --dir /path/to/project
    - Command execution (with permission prompts)
 5. **Testing** - Automatically runs tests if a test framework is detected
 6. **Completion** - Shows summary and execution statistics
+---
+
+## 📁 Project Structure
+
+The Coderrr repository follows a clean and modular structure to improve
+maintainability, scalability, and contributor onboarding.
+
+```text
+Coderrr/
+├── bin/            # CLI entry points (modern CLI & legacy TUI)
+├── src/            # Core agent logic, file operations, execution & UI
+├── backend/        # FastAPI backend for AI processing
+├── docs/           # Detailed documentation (architecture, API, guides)
+├── examples/       # Example usage and demo projects
+├── test/           # General test files
+├── tests/unit/     # Unit tests for core components
+├── .github/        # GitHub Actions, CI/CD workflows, templates
+├── package.json    # Node.js dependencies and CLI metadata
+├── README.md       # Project overview and usage guide
+└── LICENSE         # MIT license
 
 ---
 
@@ -384,6 +404,9 @@ coderrr
 ---
 
 ## Contributing
+
+Before contributing, please review the **Project Structure** section above to understand where new code, tests, or documentation should be added.
+
 
 Contributions are welcome! Please read our [Contributing Guidelines](./CONTRIBUTING.md) before submitting pull requests.
 
