@@ -14,6 +14,7 @@ const chalk = require('chalk');
 const Agent = require('../src/agent');
 const configManager = require('../src/configManager');
 const { getProviderChoices, getModelChoices, getProvider, validateApiKey } = require('../src/providers');
+const { tryExtractJSON } = require('../src/utils');
 
 // Optional: Load .env from user's home directory (for advanced users who want custom backend)
 const homeConfigPath = path.join(os.homedir(), '.coderrr', '.env');
@@ -210,6 +211,40 @@ program
 
     await agent.process(request);
     process.exit(0);
+  });
+
+program
+  .command('analyze <request>')
+  .description('Analyze a request and return a structured plan without executing it')
+  .option('-b, --backend <url>', 'Backend URL', process.env.CODERRR_BACKEND)
+  .option('-d, --dir <path>', 'Working directory', process.cwd())
+  .action(async (request, options) => {
+    const agent = new Agent({
+      backendUrl: options.backend,
+      workingDir: path.resolve(options.dir),
+      scanOnFirstRequest: true
+    });
+
+    try {
+      const response = await agent.chat(request);
+
+      // Handle both object responses (new backend) and string responses
+      const parsed = typeof response === 'object' && response !== null && response.plan
+        ? response
+        : tryExtractJSON(response);
+
+      if (parsed) {
+        console.log(JSON.stringify(parsed, null, 2));
+      } else {
+        console.log(chalk.yellow('\n⚠ Could not parse a structured plan from the AI response.'));
+        console.log(chalk.gray('Raw response:'));
+        console.log(response);
+      }
+      process.exit(0);
+    } catch (error) {
+      console.error(chalk.red(`\n✗ Error during analysis: ${error.message}\n`));
+      process.exit(1);
+    }
   });
 
 // Rollback command - revert Coderrr changes
