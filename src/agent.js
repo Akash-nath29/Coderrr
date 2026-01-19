@@ -646,6 +646,16 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         }
 
         plan = parsed.plan;
+        // ✅ Fix: Handle plain queries (no plan / empty plan)
+if (!Array.isArray(plan) || plan.length === 0) {
+  ui.section('Response');
+  console.log(explanation || response);
+  ui.space();
+
+  ui.success('No tasks generated (plain query). Nothing to execute.');
+  return;
+}
+
 
         // Add assistant response to history (summarized for context efficiency)
         if (trackHistory) {
