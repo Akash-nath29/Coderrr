@@ -330,9 +330,8 @@ For command execution on ${osType}, use appropriate command separators (${osType
 
                 const fixedStep = await this.selfHeal(step, errorMsg, retryCount);
 
-                if (fixedStep && fixedStep.command) {
-                  step.command = fixedStep.command;
-                  step.summary = fixedStep.summary || step.summary;
+                if (fixedStep && this.validateFixedStep(fixedStep)) {
+                  Object.assign(step, fixedStep);
                   retryCount++;
                   continue; // Retry with fixed command
                 } else {
@@ -376,12 +375,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
 
             const fixedStep = await this.selfHeal(step, errorMsg, retryCount);
 
-            if (fixedStep) {
-              // Update step with fixed version - but validate it has required fields
-              if (step.action === 'run_command' && !fixedStep.command) {
-                ui.error('AI fix is missing command, cannot retry');
-                break;
-              }
+            if (fixedStep && this.validateFixedStep(fixedStep)) {
               Object.assign(step, fixedStep);
               retryCount++;
               continue; // Retry with fixed step
@@ -427,6 +421,51 @@ For command execution on ${osType}, use appropriate command separators (${osType
     }
 
     return stats;
+  }
+
+  /**
+   * Validate that a fixed step has all required fields for its action type
+   */
+  validateFixedStep(fixedStep) {
+    if (!fixedStep || typeof fixedStep !== 'object') {
+      return false;
+    }
+
+    const action = fixedStep.action;
+    if (!action) {
+      return false;
+    }
+
+    switch (action) {
+      case 'run_command':
+        return typeof fixedStep.command === 'string' && fixedStep.command.trim().length > 0;
+
+      case 'create_file':
+      case 'update_file':
+        return typeof fixedStep.path === 'string' && fixedStep.path.trim().length > 0 &&
+               typeof fixedStep.content === 'string';
+
+      case 'patch_file':
+        return typeof fixedStep.path === 'string' && fixedStep.path.trim().length > 0 &&
+               typeof fixedStep.oldContent === 'string' && fixedStep.oldContent.trim().length > 0 &&
+               typeof fixedStep.newContent === 'string' && fixedStep.newContent.trim().length > 0;
+
+      case 'delete_file':
+      case 'read_file':
+      case 'create_dir':
+      case 'delete_dir':
+      case 'list_dir':
+        return typeof fixedStep.path === 'string' && fixedStep.path.trim().length > 0;
+
+      case 'rename_dir':
+        return (typeof fixedStep.path === 'string' && fixedStep.path.trim().length > 0 &&
+                typeof fixedStep.newPath === 'string' && fixedStep.newPath.trim().length > 0) ||
+               (typeof fixedStep.oldPath === 'string' && fixedStep.oldPath.trim().length > 0 &&
+                typeof fixedStep.newPath === 'string' && fixedStep.newPath.trim().length > 0);
+
+      default:
+        return false;
+    }
   }
 
   /**
