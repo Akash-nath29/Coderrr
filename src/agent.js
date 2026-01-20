@@ -7,6 +7,9 @@ const CommandExecutor = require('./executor').CommandExecutor;
 const TodoManager = require('./todoManager');
 const CodebaseScanner = require('./codebaseScanner');
 const GitOperations = require('./gitOps');
+const { sanitizeAxiosError, formatUserError, createSafeError, isNetworkError } = require('./errorHandler');
+const configManager = require('./configManager');
+const { getProvider } = require('./providers');
 
 /**
  * Core AI Agent that communicates with backend and executes plans
@@ -43,22 +46,44 @@ class Agent {
     this.codebaseContext = null; // Cached codebase structure
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
     this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
-    this.customPrompt = null; // Custom system prompt from Coderrr.md
+    this.maxHistoryLength = options.maxHistoryLength || 10; // Max conversation turns to keep
+
+    // Load user provider configuration
+    this.providerConfig = configManager.getConfig();
   }
 
   /**
-   * Load custom system prompt from Coderrr.md file if it exists
+   * Add a message to conversation history
+   * @param {string} role - 'user' or 'assistant'
+   * @param {string} content - Message content
    */
-  loadCustomPrompt() {
-    try {
-      const customPromptPath = path.join(this.workingDir, 'Coderrr.md');
-      if (fs.existsSync(customPromptPath)) {
-        this.customPrompt = fs.readFileSync(customPromptPath, 'utf8').trim();
-        ui.info('Loaded custom system prompt from Coderrr.md');
-      }
-    } catch (error) {
-      ui.warning(`Could not load Coderrr.md: ${error.message}`);
+  addToHistory(role, content) {
+    this.conversationHistory.push({ role, content });
+
+    // Trim history if it exceeds max length (keep most recent)
+    // Each turn = 2 messages (user + assistant), so maxHistoryLength * 2
+    const maxMessages = this.maxHistoryLength * 2;
+    if (this.conversationHistory.length > maxMessages) {
+      this.conversationHistory = this.conversationHistory.slice(-maxMessages);
     }
+  }
+
+  /**
+   * Clear conversation history (useful for starting fresh)
+   */
+  clearHistory() {
+    this.conversationHistory = [];
+    ui.info('Conversation history cleared');
+  }
+
+  /**
+   * Get formatted conversation history for the backend
+   */
+  getFormattedHistory() {
+    return this.conversationHistory.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
   }
 
   /**
@@ -97,31 +122,56 @@ ${prompt}`;
       }
 
       if (this.codebaseContext) {
-        enhancedPrompt = `${enhancedPrompt}
+        const osType = process.platform === 'win32' ? 'Windows' :
+          process.platform === 'darwin' ? 'macOS' : 'Linux';
+
+        enhancedPrompt = `${prompt}
+
+SYSTEM ENVIRONMENT:
+Operating System: ${osType}
+Platform: ${process.platform}
+Node Version: ${process.version}
 
 EXISTING PROJECT STRUCTURE:
 Working Directory: ${this.codebaseContext.structure.workingDir}
 Total Files: ${this.codebaseContext.structure.totalFiles}
 Total Directories: ${this.codebaseContext.structure.totalDirectories}
-
 DIRECTORIES:
 ${this.codebaseContext.directories.slice(0, 20).join('\n')}
-
 EXISTING FILES:
 ${this.codebaseContext.files.slice(0, 30).map(f => `- ${f.path} (${f.size} bytes)`).join('\n')}
 
-When editing existing files, use EXACT filenames from the list above. When creating new files, ensure they don't conflict with existing ones.`;
+When editing existing files, use EXACT filenames from the list above. When creating new files, ensure they don't conflict with existing ones.
+For command execution on ${osType}, use appropriate command separators (${osType === 'Windows' ? 'semicolon (;)' : 'ampersand (&&)'}).`;
       }
 
       const spinner = ui.spinner('Thinking...');
       spinner.start();
 
-      const response = await axios.post(`${this.backendUrl}/chat`, {
+      // Include conversation history for context continuity
+      const requestPayload = {
         prompt: enhancedPrompt,
         temperature: options.temperature || 0.2,
         max_tokens: options.max_tokens || 2000,
         top_p: options.top_p || 1.0
-      });
+      };
+
+      // Add provider configuration if user has configured one
+      if (this.providerConfig) {
+        requestPayload.provider = this.providerConfig.provider;
+        requestPayload.api_key = this.providerConfig.apiKey;
+        requestPayload.model = this.providerConfig.model;
+        if (this.providerConfig.endpoint) {
+          requestPayload.endpoint = this.providerConfig.endpoint;
+        }
+      }
+
+      // Add conversation history if available (for multi-turn conversations)
+      if (this.conversationHistory.length > 0) {
+        requestPayload.conversation_history = this.getFormattedHistory();
+      }
+
+      const response = await axios.post(`${this.backendUrl}/chat`, requestPayload);
 
       spinner.stop();
 
@@ -129,16 +179,23 @@ When editing existing files, use EXACT filenames from the list above. When creat
         throw new Error(response.data.error);
       }
 
-      return response.data.response;
+      // Handle both new format (direct object with explanation/plan) and legacy format (wrapped in response)
+      return response.data.response || response.data;
     } catch (error) {
-      if (error.code === 'ECONNREFUSED') {
+      // Sanitize error to prevent logging sensitive data
+      const sanitized = sanitizeAxiosError(error);
+      const userMessage = formatUserError(sanitized, this.backendUrl);
+
+      if (isNetworkError(error)) {
         ui.error(`Cannot connect to backend at ${this.backendUrl}`);
         ui.warning('Make sure the backend is running:');
         console.log('  uvicorn main:app --reload --port 5000');
       } else {
-        ui.error(`Failed to communicate with backend: ${error.message}`);
+        ui.error(`Failed to communicate with backend: ${userMessage}`);
       }
-      throw error;
+
+      // Throw a sanitized error, not the raw Axios error with sensitive data
+      throw createSafeError(error);
     }
   }
 
@@ -429,6 +486,7 @@ When editing existing files, use EXACT filenames from the list above. When creat
    */
   async selfHeal(failedStep, errorMessage, attemptNumber) {
     try {
+      // Use the same format as normal requests so it passes backend validation
       const healingPrompt = `The following step failed with an error. Please analyze the error and provide a fixed version of the step.
 
 FAILED STEP:
@@ -445,28 +503,37 @@ CONTEXT:
 - Attempt number: ${attemptNumber + 1}
 - Available files: ${this.codebaseContext ? this.codebaseContext.files.map(f => f.path).slice(0, 10).join(', ') : 'Unknown'}
 
-Please provide ONLY a JSON object with the fixed step in this exact format:
+Please provide ONLY a JSON object with the fixed step. Use the standard plan format:
 {
   "explanation": "Brief explanation of what went wrong and how you fixed it",
-  "fixed_step": {
-    "action": "${failedStep.action}",
-    "command": "corrected command if action is run_command",
-    "path": "corrected path if file operation",
-    "content": "corrected content if needed",
-    "summary": "updated summary"
-  }
+  "plan": [
+    {
+      "action": "${failedStep.action}",
+      "command": "corrected command if action is run_command",
+      "path": "corrected path if file operation",
+      "content": "corrected content if needed",
+      "oldContent": "old content for patch_file",
+      "newContent": "new content for patch_file",
+      "summary": "updated summary"
+    }
+  ]
 }`;
 
       ui.info('🔧 Requesting fix from AI...');
       const response = await this.chat(healingPrompt);
-      const parsed = this.parseJsonResponse(response);
+
+      // Handle both object response (from new backend) and string response
+      const parsed = typeof response === 'object' && response !== null && response.plan
+        ? response
+        : this.parseJsonResponse(response);
 
       if (parsed.explanation) {
         ui.info(`💡 Fix: ${parsed.explanation}`);
       }
 
-      if (parsed.fixed_step) {
-        return parsed.fixed_step;
+      // Extract the fixed step from the plan array
+      if (parsed.plan && parsed.plan.length > 0) {
+        return parsed.plan[0];
       }
 
       return null;
@@ -484,9 +551,9 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
 
     const testCommands = [
       { cmd: 'npm test', file: 'package.json' },
+      { cmd: 'npx jest', file: 'jest.config.js' },
+      { cmd: 'npx jest', file: 'jest.config.ts' },
       { cmd: 'pytest', file: 'pytest.ini' },
-      { cmd: 'pytest', file: 'tests/' },
-      { cmd: 'python -m pytest', file: 'tests/' },
       { cmd: 'cargo test', file: 'Cargo.toml' },
       { cmd: 'go test ./...', file: 'go.mod' },
       { cmd: 'mvn test', file: 'pom.xml' },
@@ -500,6 +567,32 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
       if (fs.existsSync(filePath)) {
         testCommand = cmd;
         break;
+      }
+    }
+
+    if (!testCommand) {
+      const testDirs = ['tests', 'test'];
+      for (const dir of testDirs) {
+        const dirPath = path.join(this.workingDir, dir);
+        if (fs.existsSync(dirPath)) {
+          try {
+            const stats = fs.statSync(dirPath);
+            if (stats.isDirectory()) {
+              const files = fs.readdirSync(dirPath);
+              // Check for JS/TS files -> Jest
+              if (files.some(f => /\.(js|ts|jsx|tsx)$/.test(f))) {
+                testCommand = 'npx jest';
+                break;
+              }
+              if (files.some(f => /\.py$/.test(f))) {
+                testCommand = 'pytest';
+                break;
+              }
+            }
+          } catch (e) {
+            console.log(e);
+          }
+        }
       }
     }
 
@@ -533,30 +626,54 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
   /**
    * Main agent loop - process user request
    */
-  async process(userRequest) {
+  async process(userRequest, options = {}) {
+    const { trackHistory = true } = options;
+
     try {
       ui.section('Processing Request');
       ui.info(`Request: ${userRequest}`);
 
+      // Add user message to history before processing
+      if (trackHistory) {
+        this.addToHistory('user', userRequest);
+      }
+
       // Get AI response
       const response = await this.chat(userRequest);
 
-      // Try to parse JSON plan
+      // Try to parse JSON plan - handle both object responses (new backend) and string responses
       let plan;
+      let explanation = '';
       try {
-        const parsed = this.parseJsonResponse(response);
+        // If response is already an object with explanation/plan, use it directly
+        const parsed = typeof response === 'object' && response !== null && response.plan
+          ? response
+          : this.parseJsonResponse(response);
 
         // Show explanation if present
         if (parsed.explanation) {
+          explanation = parsed.explanation;
           ui.section('Plan');
           console.log(parsed.explanation);
           ui.space();
         }
 
         plan = parsed.plan;
+
+        // Add assistant response to history (summarized for context efficiency)
+        if (trackHistory) {
+          const historySummary = explanation ||
+            `Executed ${plan?.length || 0} step(s): ${plan?.map(s => s.summary || s.action).join(', ')}`;
+          this.addToHistory('assistant', historySummary);
+        }
       } catch (error) {
         ui.warning('Could not parse structured plan from response');
         console.log(response);
+
+        // Still add to history even if parsing failed
+        if (trackHistory) {
+          this.addToHistory('assistant', response.substring(0, 500));
+        }
 
         const shouldContinue = await ui.confirm('Try manual execution mode?', false);
         if (!shouldContinue) {
@@ -585,11 +702,12 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
   }
 
   /**
-   * Interactive mode - continuous conversation
+   * Interactive mode - continuous conversation with history
    */
   async interactive() {
     ui.showBanner();
     ui.info('Interactive mode - Type your requests or "exit" to quit');
+    ui.info('Commands: "clear" (reset conversation), "history" (show context), "refresh" (rescan codebase)');
     ui.space();
 
     while (true) {
@@ -599,12 +717,63 @@ Please provide ONLY a JSON object with the fixed step in this exact format:
         continue;
       }
 
-      if (request.toLowerCase() === 'exit' || request.toLowerCase() === 'quit') {
+      const command = request.toLowerCase().trim();
+
+      // Handle special commands
+      if (command === 'exit' || command === 'quit') {
         ui.info('Goodbye! 👋');
         break;
       }
 
-      await this.process(request);
+      if (command === 'clear' || command === 'reset') {
+        this.clearHistory();
+        ui.success('Starting fresh conversation');
+        ui.space();
+        continue;
+      }
+
+      if (command === 'history') {
+        if (this.conversationHistory.length === 0) {
+          ui.info('No conversation history yet');
+        } else {
+          ui.section(`Conversation History (${this.conversationHistory.length} messages)`);
+          this.conversationHistory.forEach((msg, i) => {
+            const prefix = msg.role === 'user' ? '👤 You:' : '🤖 Coderrr:';
+            const content = msg.content.length > 100
+              ? msg.content.substring(0, 100) + '...'
+              : msg.content;
+            console.log(`  ${i + 1}. ${prefix} ${content}`);
+          });
+        }
+        ui.space();
+        continue;
+      }
+
+      if (command === 'refresh') {
+        this.refreshCodebase();
+        ui.space();
+        continue;
+      }
+
+      if (command === 'help') {
+        ui.section('Available Commands');
+        console.log('  exit, quit    - Exit interactive mode');
+        console.log('  clear, reset  - Clear conversation history');
+        console.log('  history       - Show conversation history');
+        console.log('  refresh       - Rescan the codebase');
+        console.log('  help          - Show this help message');
+        console.log('  Or just type your coding request!');
+        ui.space();
+        continue;
+      }
+
+      try {
+        await this.process(request);
+      } catch (error) {
+        // Error is already handled and displayed in process()
+        // Just continue the interactive loop without crashing
+        ui.warning('You can continue with a new request or type "exit" to quit.');
+      }
       ui.space();
     }
   }

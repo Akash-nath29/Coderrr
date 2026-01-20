@@ -1,21 +1,46 @@
+"""
+Coderrr Backend - Multi-Provider LLM API
+
+Supports multiple LLM providers: OpenAI, Anthropic, OpenRouter, Ollama, Azure AI.
+"""
+
 import os
 import time
-from typing import Optional
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, validator
-from dotenv import load_dotenv
 import asyncio
+import json
+import re
+from typing import Optional, List, Literal
+
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, validator, model_validator
+from dotenv import load_dotenv
+
+# Import providers
+from providers import get_provider, BaseProvider
 
 load_dotenv()
 
-# Azure AI Inference SDK for GitHub Models
-from azure.ai.inference import ChatCompletionsClient
-from azure.ai.inference.models import SystemMessage, UserMessage
-from azure.core.credentials import AzureKeyCredential
+# =========================
+# Configuration
+# =========================
+MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "10000"))
+MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE", "50000"))
+LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "300"))
+RATE_LIMIT_WINDOW = 60
+RATE_LIMIT_MAX_REQUESTS = 30
+VERSION = "2.0.0"
 
-app = FastAPI(title="Coderrr Backend")
+# Default provider for backward compatibility (when no provider config sent)
+DEFAULT_PROVIDER = os.getenv("DEFAULT_PROVIDER", "azure")
+DEFAULT_API_KEY = os.getenv("GITHUB_TOKEN", "")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "openai/gpt-4o")
+
+app = FastAPI(
+    title="Coderrr Backend",
+    description="Multi-provider LLM backend for Coderrr AI coding agent",
+    version=VERSION
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,262 +50,281 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configuration
-TOKEN = os.getenv("GITHUB_TOKEN")
-ENDPOINT = os.getenv("GITHUB_MODELS_ENDPOINT", "https://models.github.ai/inference")
-MODEL_NAME = os.getenv("GITHUB_MODEL", "openai/gpt-4o")
-
-# Security Configuration
-MAX_PROMPT_LENGTH = int(os.getenv("MAX_PROMPT_LENGTH", "10000"))  # 10k chars
-MAX_REQUEST_SIZE = int(os.getenv("MAX_REQUEST_SIZE", "50000"))  # 50k chars total
-LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "60"))  # 60 seconds
-RATE_LIMIT_WINDOW = 60  # 1 minute
-RATE_LIMIT_MAX_REQUESTS = 30  # 30 requests per minute per IP
-
-# Rate limiting store (in-memory, production should use Redis)
+# Rate limiting store (in-memory)
 rate_limit_store = {}
 
-# Validate GitHub token on startup
-if not TOKEN:
-    raise RuntimeError("GITHUB_TOKEN environment variable is required but not set")
 
-# Initialize client with error handling
-try:
-    client = ChatCompletionsClient(
-        endpoint=ENDPOINT,
-        credential=AzureKeyCredential(TOKEN),
-    )
-    print(f"[INFO] Successfully initialized client with model: {MODEL_NAME}")
-except Exception as e:
-    print(f"[ERROR] Failed to initialize AI client: {e}")
-    raise RuntimeError(f"Failed to initialize AI client: {e}")
+# =========================
+# Request/Response Models
+# =========================
+class ConversationMessage(BaseModel):
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., min_length=1, max_length=5000)
 
 
-# Request validation models
 class ChatRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=MAX_PROMPT_LENGTH)
+    
+    # Provider configuration (optional - uses defaults if not provided)
+    provider: Optional[str] = Field(default=None, description="Provider ID: openai, anthropic, openrouter, ollama, azure")
+    api_key: Optional[str] = Field(default=None, description="API key for the provider")
+    model: Optional[str] = Field(default=None, description="Model identifier")
+    endpoint: Optional[str] = Field(default=None, description="Custom endpoint URL")
+    
+    # LLM parameters
     temperature: Optional[float] = Field(default=0.2, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=2000, ge=1, le=4000)
+    max_tokens: Optional[int] = Field(default=2000, ge=1, le=8000)
     top_p: Optional[float] = Field(default=1.0, ge=0.0, le=1.0)
+    
+    # Conversation history
+    conversation_history: Optional[List[ConversationMessage]] = Field(default=None, max_length=20)
 
-    @validator('prompt')
+    @validator("prompt")
     def validate_prompt(cls, v):
-        # Trim whitespace
         v = v.strip()
-        
-        # Check if empty after trimming
         if not v:
-            raise ValueError("Prompt cannot be empty or only whitespace")
-        
-        # Check for suspicious patterns (basic injection prevention)
-        suspicious_patterns = [
-            "ignore previous instructions",
-            "disregard system prompt",
-            "override instructions",
-            "bypass security"
-        ]
-        
-        v_lower = v.lower()
-        for pattern in suspicious_patterns:
-            if pattern in v_lower:
-                raise ValueError(f"Prompt contains suspicious pattern: {pattern}")
-        
+            raise ValueError("Prompt cannot be empty")
         return v
 
-    class Config:
-        # Validate on assignment
-        validate_assignment = True
+
+class PlanStep(BaseModel):
+    model_config = {"populate_by_name": True}
+
+    action: Literal[
+        "create_file", "update_file", "patch_file", "delete_file",
+        "read_file", "run_command", "create_dir", "delete_dir",
+        "list_dir", "rename_dir"
+    ]
+    path: Optional[str] = None
+    content: Optional[str] = None
+    old_content: Optional[str] = Field(default=None, alias="oldContent")
+    new_content: Optional[str] = Field(default=None, alias="newContent")
+    old_path: Optional[str] = Field(default=None, alias="oldPath")
+    new_path: Optional[str] = Field(default=None, alias="newPath")
+    command: Optional[str] = None
+    summary: str
 
 
+class ChatResponse(BaseModel):
+    explanation: str
+    plan: List[PlanStep]
+
+    @model_validator(mode="after")
+    def validate_plan(self):
+        for p in self.plan:
+            if p.action in {"create_file", "update_file"} and not p.content:
+                raise ValueError("Invalid AI response: missing file content")
+        return self
+
+
+class RootResponse(BaseModel):
+    message: str
+    version: str
+    providers: List[str]
+    default_provider: str
+
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    default_provider_configured: bool
+
+
+# =========================
+# System Prompt
+# =========================
+SYSTEM_INSTRUCTIONS = """You are Coderrr, an AI coding assistant. You MUST respond with ONLY a valid JSON object (no markdown, no extra text).
+
+The JSON MUST follow this exact schema:
+{
+  "explanation": "Brief explanation of what you will do",
+  "plan": [
+    {
+      "action": "ACTION_TYPE",
+      "path": "file/path if applicable",
+      "content": "file content if creating/updating files",
+      "command": "shell command if action is run_command",
+      "summary": "Brief description of this step"
+    }
+  ]
+}
+
+Valid ACTION_TYPE values:
+- "create_file": Create a new file (requires path, content, summary)
+- "update_file": Replace entire file content (requires path, content, summary)
+- "patch_file": Modify part of a file (requires path, oldContent, newContent, summary)
+- "delete_file": Delete a file (requires path, summary)
+- "run_command": Execute a shell command (requires command, summary)
+- "create_dir": Create a directory (requires path, summary)
+
+IMPORTANT RULES:
+1. Return ONLY the JSON object, no markdown code blocks, no explanations outside JSON
+2. The "explanation" field is REQUIRED
+3. The "plan" array is REQUIRED (can be empty if no actions needed)
+4. Each plan item MUST have "action" and "summary" fields
+5. For run_command, use PowerShell syntax on Windows
+"""
+
+
+# =========================
+# Helper Functions
+# =========================
 def check_rate_limit(ip: str) -> bool:
-    """Simple in-memory rate limiting (use Redis in production)"""
+    """Check and update rate limit for an IP address."""
     current_time = time.time()
-    
-    # Clean up old entries
     rate_limit_store[ip] = [
         timestamp for timestamp in rate_limit_store.get(ip, [])
         if current_time - timestamp < RATE_LIMIT_WINDOW
     ]
     
-    # Check if under limit
     if len(rate_limit_store.get(ip, [])) >= RATE_LIMIT_MAX_REQUESTS:
         return False
     
-    # Add current request
-    if ip not in rate_limit_store:
-        rate_limit_store[ip] = []
-    rate_limit_store[ip].append(current_time)
-    
+    rate_limit_store.setdefault(ip, []).append(current_time)
     return True
 
 
-SYSTEM_INSTRUCTIONS = """
-You are Coderrr, a coding assistant that MUST respond with a JSON object for execution plans.
-When the user asks for code changes or tasks, produce a JSON object with this EXACT schema:
+def get_provider_instance(
+    provider_id: Optional[str],
+    api_key: Optional[str],
+    endpoint: Optional[str]
+) -> BaseProvider:
+    """Get provider instance from request config or defaults."""
+    
+    # Use request config if provided, otherwise fall back to defaults
+    actual_provider = provider_id or DEFAULT_PROVIDER
+    actual_key = api_key or DEFAULT_API_KEY
+    actual_endpoint = endpoint
+    
+    if not actual_key and actual_provider != "ollama":
+        raise HTTPException(
+            status_code=400,
+            detail=f"API key required for provider '{actual_provider}'. Configure via 'coderrr config' or provide in request."
+        )
+    
+    try:
+        return get_provider(actual_provider, actual_key, actual_endpoint)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-{
-  "explanation": "Brief plain English explanation of what you will do and why",
-  "plan": [
-    {
-      "action": "create_file" | "update_file" | "patch_file" | "delete_file" | "read_file" | "run_command",
-      "path": "relative/path/to/file",
-      "content": "complete file content for create_file or update_file",
-      "oldContent": "content to find (for patch_file)",
-      "newContent": "content to replace with (for patch_file)",
-      "command": "shell command (for run_command)",
-      "summary": "one-line description for this step"
-    }
-  ]
-}
 
-CRITICAL RULES:
-1. Return ONLY valid JSON. Wrap it in ```json ``` if you want, but the JSON must be valid.
-2. The "explanation" field is required and should be a clear, concise summary.
-3. Each item in "plan" must have "action" and "summary".
-4. For file operations, include "path".
-5. For create_file/update_file, include "content" with the COMPLETE file content.
-6. For patch_file, include "oldContent" and "newContent".
-7. For run_command, include "command".
-8. Use relative paths from the project root.
-9. Be explicit and conservative - small, clear steps are better than large complex ones.
-10. For test execution, use run_command with the appropriate test command (npm test, pytest, etc).
+def parse_llm_response(text: str) -> dict:
+    """Parse JSON from LLM response, handling markdown code blocks."""
+    # Try to extract JSON from markdown code block
+    json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+    if json_match:
+        json_str = json_match.group(1)
+    else:
+        json_str = text.strip()
+    
+    return json.loads(json_str)
 
-Example response:
-```json
-{
-  "explanation": "I will create a new user authentication module with JWT support",
-  "plan": [
-    {
-      "action": "create_file",
-      "path": "src/auth.py",
-      "content": "# Authentication module\\nimport jwt\\n\\ndef authenticate(user, password):\\n    # TODO: implement\\n    pass",
-      "summary": "Create authentication module"
-    },
-    {
-      "action": "run_command",
-      "command": "pytest tests/test_auth.py",
-      "summary": "Run authentication tests"
-    }
-  ]
-}
-```
 
-Now respond to the user's request with a valid JSON plan.
-"""
-
-@app.get("/")
+# =========================
+# Routes
+# =========================
+@app.get("/", response_model=RootResponse)
 def root():
+    """Root endpoint with service info."""
     return {
         "message": "Coderrr backend is running 🚀",
-        "model": MODEL_NAME,
-        "version": "1.1.0",
-        "security": {
-            "max_prompt_length": MAX_PROMPT_LENGTH,
-            "rate_limit": f"{RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s",
-            "llm_timeout": f"{LLM_TIMEOUT}s"
-        }
+        "version": VERSION,
+        "providers": ["openai", "anthropic", "openrouter", "ollama", "azure"],
+        "default_provider": DEFAULT_PROVIDER
     }
 
 
-@app.post("/chat")
-async def chat(request: Request):
-    try:
-        # Get client IP for rate limiting
-        client_ip = request.client.host
-        
-        # Check rate limit
-        if not check_rate_limit(client_ip):
-            raise HTTPException(
-                status_code=429,
-                detail=f"Rate limit exceeded. Maximum {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW} seconds."
-            )
-        
-        # Get raw body for size check
-        body_bytes = await request.body()
-        if len(body_bytes) > MAX_REQUEST_SIZE:
-            raise HTTPException(
-                status_code=413,
-                detail=f"Request body too large. Maximum size: {MAX_REQUEST_SIZE} bytes"
-            )
-        
-        # Parse and validate request
-        try:
-            body_json = await request.json()
-            chat_request = ChatRequest(**body_json)
-        except ValueError as ve:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Validation error: {str(ve)}"
-            )
-        except Exception as parse_error:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid request format: {str(parse_error)}"
-            )
-        
-        # Build user message
-        user_message = f"User request: {chat_request.prompt}\n\nPlease output a JSON object with explanation and plan as described."
-        
-        print(f"[INFO] Processing request from {client_ip}")
-        print(f"[DEBUG] Prompt length: {len(chat_request.prompt)} chars")
-        
-        # Call LLM with timeout
-        try:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client.complete,
-                    model=MODEL_NAME,
-                    messages=[
-                        SystemMessage(content=SYSTEM_INSTRUCTIONS),
-                        UserMessage(content=user_message)
-                    ],
-                    temperature=chat_request.temperature,
-                    max_tokens=chat_request.max_tokens,
-                    top_p=chat_request.top_p
-                ),
-                timeout=LLM_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            print(f"[ERROR] LLM request timed out after {LLM_TIMEOUT}s")
-            raise HTTPException(
-                status_code=504,
-                detail=f"Request timed out after {LLM_TIMEOUT} seconds"
-            )
-        
-        # Extract response text
-        try:
-            text = response.choices[0].message.content
-            print(f"[INFO] Successfully generated response ({len(text)} chars)")
-        except (AttributeError, IndexError, KeyError) as extract_err:
-            print(f"[ERROR] Failed to extract response: {extract_err}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to process model response"
-            )
-        
-        return {"response": text}
-    
-    except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        raise
-    
-    except Exception as e:
-        # Log error without exposing details to client
-        print(f"[ERROR] Unexpected error in /chat endpoint: {type(e).__name__}")
-        print(f"[ERROR] Error details: {str(e)}")
-        
-        # Return generic error to client (no stack trace)
-        raise HTTPException(
-            status_code=500,
-            detail="An internal error occurred while processing your request"
-        )
-
-
-@app.get("/health")
-def health_check():
-    """Health check endpoint for monitoring"""
+@app.get("/health", response_model=HealthResponse)
+def health():
+    """Health check endpoint."""
     return {
         "status": "healthy",
-        "model": MODEL_NAME,
-        "token_configured": bool(TOKEN)
+        "version": VERSION,
+        "default_provider_configured": bool(DEFAULT_API_KEY)
     }
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: Request, data: ChatRequest):
+    """
+    Main chat endpoint supporting multiple LLM providers.
+    
+    Provider config can be passed in request body or uses server defaults.
+    """
+    client_ip = request.client.host
+    
+    # Rate limiting
+    if not check_rate_limit(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Max {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW}s"
+        )
+    
+    # Request size check
+    body_bytes = await request.body()
+    if len(body_bytes) > MAX_REQUEST_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Request too large. Max size: {MAX_REQUEST_SIZE} bytes"
+        )
+    
+    # Get provider instance
+    provider = get_provider_instance(data.provider, data.api_key, data.endpoint)
+    model = data.model or DEFAULT_MODEL
+    
+    print(f"[INFO] Request from {client_ip} using {data.provider or DEFAULT_PROVIDER}/{model}")
+    
+    # Build messages
+    messages = [{"role": "system", "content": SYSTEM_INSTRUCTIONS}]
+    
+    # Add conversation history if provided
+    if data.conversation_history:
+        for msg in data.conversation_history:
+            messages.append({"role": msg.role, "content": msg.content})
+    
+    # Add current prompt
+    user_message = f"User request: {data.prompt}\n\nPlease output a JSON object with explanation and plan."
+    messages.append({"role": "user", "content": user_message})
+    
+    # Call LLM with timeout
+    try:
+        response_text = await asyncio.wait_for(
+            provider.chat(
+                messages=messages,
+                model=model,
+                temperature=data.temperature,
+                max_tokens=data.max_tokens
+            ),
+            timeout=LLM_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=f"Request timed out after {LLM_TIMEOUT}s"
+        )
+    except Exception as e:
+        print(f"[ERROR] Provider error: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Provider error: {str(e)[:200]}"
+        )
+    
+    print(f"[DEBUG] Response ({len(response_text)} chars): {response_text[:300]}...")
+    
+    # Parse and validate response
+    try:
+        parsed = parse_llm_response(response_text)
+        validated = ChatResponse(**parsed)
+        return validated.model_dump()
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] JSON parse error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI returned invalid JSON: {str(e)[:100]}"
+        )
+    except Exception as e:
+        print(f"[ERROR] Validation error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI response validation failed: {str(e)[:100]}"
+        )

@@ -1,0 +1,72 @@
+name: Automated Messages
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  auto_response:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Send Welcome Message
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const eventName = context.eventName;
+            const action = context.payload.action;
+            let messageFile = '';
+
+            console.log(`Event: ${eventName}, Action: ${action}`);
+
+            if (eventName === 'issues' && action === 'opened') {
+              console.log('Validating issue template...');
+              // Optional: You could add logic here to check if the issue body matches a pattern
+              // For now, we just send all new issues the welcome message
+              messageFile = '.github/auto-messages/issue_opened.md';
+            } 
+            else if (eventName === 'pull_request' && action === 'opened') {
+              const association = context.payload.pull_request.author_association;
+              console.log(`PR Author Association: ${association}`);
+              
+              if (association === 'FIRST_TIMER' || association === 'FIRST_TIME_CONTRIBUTOR' || association === 'NONE') {
+                messageFile = '.github/auto-messages/first_time_pr.md';
+              } else {
+                messageFile = '.github/auto-messages/pr_opened.md';
+              }
+            }
+
+            if (messageFile) {
+              const workspace = process.env.GITHUB_WORKSPACE;
+              const messagePath = path.join(workspace, messageFile);
+              
+              console.log(`Reading message from: ${messagePath}`);
+
+              if (fs.existsSync(messagePath)) {
+                const body = fs.readFileSync(messagePath, 'utf8');
+                
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: body
+                });
+                console.log('Comment posted successfully.');
+              } else {
+                console.error(`Message template not found at: ${messagePath}`);
+                core.setFailed(`Template file not found: ${messageFile}`);
+              }
+            } else {
+              console.log('No message template selected for this event condition.');
+            }
