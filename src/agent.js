@@ -43,6 +43,22 @@ class Agent {
     this.codebaseContext = null; // Cached codebase structure
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
     this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
+    this.customPrompt = null; // Custom system prompt from Coderrr.md
+  }
+
+  /**
+   * Load custom system prompt from Coderrr.md file if it exists
+   */
+  loadCustomPrompt() {
+    try {
+      const customPromptPath = path.join(this.workingDir, 'Coderrr.md');
+      if (fs.existsSync(customPromptPath)) {
+        this.customPrompt = fs.readFileSync(customPromptPath, 'utf8').trim();
+        ui.info('Loaded custom system prompt from Coderrr.md');
+      }
+    } catch (error) {
+      ui.warning(`Could not load Coderrr.md: ${error.message}`);
+    }
   }
 
   /**
@@ -50,6 +66,11 @@ class Agent {
    */
   async chat(prompt, options = {}) {
     try {
+      // Load custom prompt on first request if not already loaded
+      if (this.customPrompt === null) {
+        this.loadCustomPrompt();
+      }
+
       // Scan codebase on first request if enabled
       if (this.scanOnFirstRequest && !this.codebaseContext) {
         const scanSpinner = ui.spinner('Scanning codebase...');
@@ -65,10 +86,18 @@ class Agent {
         }
       }
 
-      // Enhance prompt with codebase context
+      // Enhance prompt with custom prompt and codebase context
       let enhancedPrompt = prompt;
+
+      // Prepend custom prompt if available
+      if (this.customPrompt) {
+        enhancedPrompt = `${this.customPrompt}
+
+${prompt}`;
+      }
+
       if (this.codebaseContext) {
-        enhancedPrompt = `${prompt}
+        enhancedPrompt = `${enhancedPrompt}
 
 EXISTING PROJECT STRUCTURE:
 Working Directory: ${this.codebaseContext.structure.workingDir}
