@@ -298,8 +298,10 @@ For command execution on ${osType}, use appropriate command separators (${osType
   async executePlan(plan) {
     if (!Array.isArray(plan) || plan.length === 0) {
       ui.warning('No plan to execute');
-      return;
+      return { stats: { completed: 0, total: 0, pending: 0 }, executionLog: [] };
     }
+
+    const executionLog = [];
 
     // Parse and display TODOs
     this.todoManager.parseTodos(plan);
@@ -332,6 +334,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
 
       let retryCount = 0;
       let stepSuccess = false;
+      let stepResult = null;
 
       while (!stepSuccess && retryCount <= this.maxRetries) {
         try {
@@ -341,6 +344,10 @@ For command execution on ${osType}, use appropriate command separators (${osType
               requirePermission: true,
               cwd: this.workingDir
             });
+
+            stepResult = result.success 
+                ? `Executed command: "${step.command}"` 
+                : `Failed command: "${step.command}". Error: ${result.error || result.output}`;
 
             if (!result.success && !result.cancelled) {
               const errorMsg = result.error || result.output || 'Unknown error';
@@ -371,6 +378,8 @@ For command execution on ${osType}, use appropriate command separators (${osType
                 ui.error(`Command failed${this.autoRetry ? ` after ${this.maxRetries + 1} attempts` : ''}, stopping execution`);
                 break;
               }
+            } else {
+                stepSuccess = true;
             }
 
             if (result.cancelled) {
@@ -382,11 +391,13 @@ For command execution on ${osType}, use appropriate command separators (${osType
           } else {
             // File operation
             await this.fileOps.execute(step);
+            stepResult = `${step.action}: "${step.path}"`;
             stepSuccess = true;
           }
 
           if (stepSuccess) {
             this.todoManager.complete(i);
+            executionLog.push(`✓ Step ${i + 1}: ${stepResult}`);
           }
         } catch (error) {
           const errorMsg = error.message || 'Unknown error';
@@ -396,6 +407,10 @@ For command execution on ${osType}, use appropriate command separators (${osType
             ui.error(`Non-retryable error: ${errorMsg}`);
             ui.warning('⚠️  This type of error cannot be auto-fixed (file/permission/config issue)');
             break; // Don't retry, let the outer loop ask user what to do
+          }
+
+          if (!stepSuccess && retryCount === this.maxRetries) {
+              executionLog.push(`✗ Step ${i + 1} Failed: ${error.message}`);
           }
 
           if (this.autoRetry && retryCount < this.maxRetries) {
@@ -449,7 +464,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
       }
     }
 
-    return stats;
+    return { stats, executionLog };
   }
 
   /**
@@ -657,6 +672,9 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
       // Get AI response
       const response = await this.chat(userRequest);
 
+      // Execute the plan
+      const stats = await this.executePlan(plan);
+
       // Try to parse JSON plan - handle both object responses (new backend) and string responses
       let plan;
       let explanation = '';
@@ -697,8 +715,17 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         console.log(response);
 
         // Still add to history even if parsing failed
-        if (trackHistory) {
-          this.addToHistory('assistant', response.substring(0, 500));
+        if (trackHistory && executionLog && executionLog.length > 0) {
+          const memoryUpdate = `
+SYSTEM REPORT - EXECUTION COMPLETED:
+The following actions were performed successfully:
+${executionLog.join('\n')}
+
+Current State:
+- Tasks Completed: ${stats.completed}/${stats.total}
+- Ready for next instruction.
+`;
+          this.addToHistory('assistant', memoryUpdate);
         }
 
         const shouldContinue = await ui.confirm('Try manual execution mode?', false);
@@ -709,9 +736,6 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         // No structured plan available
         return;
       }
-
-      // Execute the plan
-      const stats = await this.executePlan(plan);
 
       // Run tests if all tasks completed successfully
       if (this.autoTest && stats.completed === stats.total && stats.total > 0) {
