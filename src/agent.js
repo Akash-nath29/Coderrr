@@ -345,9 +345,9 @@ For command execution on ${osType}, use appropriate command separators (${osType
               cwd: this.workingDir
             });
 
-            stepResult = result.success 
-                ? `Executed command: "${step.command}"` 
-                : `Failed command: "${step.command}". Error: ${result.error || result.output}`;
+            stepResult = result.success
+              ? `Executed command: "${step.command}"`
+              : `Failed command: "${step.command}". Error: ${result.error || result.output}`;
 
             if (!result.success && !result.cancelled) {
               const errorMsg = result.error || result.output || 'Unknown error';
@@ -379,7 +379,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
                 break;
               }
             } else {
-                stepSuccess = true;
+              stepSuccess = true;
             }
 
             if (result.cancelled) {
@@ -410,7 +410,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
           }
 
           if (!stepSuccess && retryCount === this.maxRetries) {
-              executionLog.push(`✗ Step ${i + 1} Failed: ${error.message}`);
+            executionLog.push(`✗ Step ${i + 1} Failed: ${error.message}`);
           }
 
           if (this.autoRetry && retryCount < this.maxRetries) {
@@ -672,12 +672,12 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
       // Get AI response
       const response = await this.chat(userRequest);
 
-      // Execute the plan
-      const stats = await this.executePlan(plan);
-
       // Try to parse JSON plan - handle both object responses (new backend) and string responses
       let plan;
       let explanation = '';
+      let stats = { completed: 0, total: 0, pending: 0 };
+      let executionLog = [];
+
       try {
         // If response is already an object with explanation/plan, use it directly
         const parsed = typeof response === 'object' && response !== null && response.plan
@@ -693,6 +693,61 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         }
 
         plan = parsed.plan;
+
+        // ✅ Special handling for read_file queries (questions about files)
+        // If the plan only contains read_file actions, execute them and ask AI to interpret
+        const isReadOnlyQuery = Array.isArray(plan) &&
+          plan.length > 0 &&
+          plan.every(step => step.action === 'read_file');
+
+        if (isReadOnlyQuery) {
+          ui.info('Reading files to answer your question...');
+
+          // Read all requested files
+          const fileContents = [];
+          for (const step of plan) {
+            try {
+              const result = await this.fileOps.readFile(step.path);
+              fileContents.push({
+                path: step.path,
+                content: result.content
+              });
+            } catch (error) {
+              fileContents.push({
+                path: step.path,
+                error: error.message
+              });
+            }
+          }
+
+          // Make follow-up call with file contents
+          const followUpPrompt = `Based on the following file contents, please answer the user's original question: "${userRequest}"
+
+FILE CONTENTS:
+${fileContents.map(f => f.error
+            ? `--- ${f.path} ---\nError: ${f.error}`
+            : `--- ${f.path} ---\n${f.content}`
+          ).join('\n\n')}
+
+Provide a helpful explanation. Return JSON with "explanation" containing your answer and an empty "plan" array.`;
+
+          const followUpResponse = await this.chat(followUpPrompt);
+          const followUpParsed = typeof followUpResponse === 'object' && followUpResponse !== null
+            ? followUpResponse
+            : this.parseJsonResponse(followUpResponse);
+
+          ui.section('Response');
+          console.log(followUpParsed.explanation || followUpResponse);
+          ui.space();
+
+          if (trackHistory) {
+            this.addToHistory('assistant', followUpParsed.explanation || 'Answered question about file contents.');
+          }
+
+          ui.success('Question answered.');
+          return;
+        }
+
         // ✅ Fix: Handle plain queries (no plan / empty plan)
         if (!Array.isArray(plan) || plan.length === 0) {
           ui.section('Response');
@@ -703,6 +758,10 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
           return;
         }
 
+        // Execute the plan (now that plan is defined)
+        const result = await this.executePlan(plan);
+        stats = result.stats;
+        executionLog = result.executionLog;
 
         // Add assistant response to history (summarized for context efficiency)
         if (trackHistory) {
