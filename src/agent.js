@@ -91,6 +91,11 @@ class Agent {
    */
   async chat(prompt, options = {}) {
     try {
+      // Load custom prompt on first request if not already loaded
+      if (this.customPrompt === null) {
+        this.loadCustomPrompt();
+      }
+
       // Scan codebase on first request if enabled
       if (this.scanOnFirstRequest && !this.codebaseContext) {
         const scanSpinner = ui.spinner('Scanning codebase...');
@@ -106,8 +111,16 @@ class Agent {
         }
       }
 
-      // Enhance prompt with codebase context
+      // Enhance prompt with custom prompt and codebase context
       let enhancedPrompt = prompt;
+
+      // Prepend custom prompt if available
+      if (this.customPrompt) {
+        enhancedPrompt = `${this.customPrompt}
+
+${prompt}`;
+      }
+
       if (this.codebaseContext) {
         const osType = process.platform === 'win32' ? 'Windows' :
           process.platform === 'darwin' ? 'macOS' : 'Linux';
