@@ -47,6 +47,7 @@ class Agent {
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
     this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
     this.maxHistoryLength = options.maxHistoryLength || 10; // Max conversation turns to keep
+    this.customPrompt = null; // Custom system prompt from Coderrr.md
 
     // Load user provider configuration
     this.providerConfig = configManager.getConfig();
@@ -77,6 +78,21 @@ class Agent {
   }
 
   /**
+   * Load custom system prompt from Coderrr.md in project directory
+   */
+  loadCustomPrompt() {
+    try {
+      const customPromptPath = path.join(this.workingDir, 'Coderrr.md');
+      if (fs.existsSync(customPromptPath)) {
+        this.customPrompt = fs.readFileSync(customPromptPath, 'utf8').trim();
+        ui.info('Loaded custom system prompt from Coderrr.md');
+      }
+    } catch (error) {
+      ui.warning(`Could not load Coderrr.md: ${error.message}`);
+    }
+  }
+
+  /**
    * Get formatted conversation history for the backend
    */
   getFormattedHistory() {
@@ -91,6 +107,11 @@ class Agent {
    */
   async chat(prompt, options = {}) {
     try {
+      // Load custom prompt on first request if not already loaded
+      if (this.customPrompt === null) {
+        this.loadCustomPrompt();
+      }
+
       // Scan codebase on first request if enabled
       if (this.scanOnFirstRequest && !this.codebaseContext) {
         const scanSpinner = ui.spinner('Scanning codebase...');
@@ -106,8 +127,16 @@ class Agent {
         }
       }
 
-      // Enhance prompt with codebase context
+      // Enhance prompt with custom prompt and codebase context
       let enhancedPrompt = prompt;
+
+      // Prepend custom prompt if available
+      if (this.customPrompt) {
+        enhancedPrompt = `${this.customPrompt}
+
+${prompt}`;
+      }
+
       if (this.codebaseContext) {
         const osType = process.platform === 'win32' ? 'Windows' :
           process.platform === 'darwin' ? 'macOS' : 'Linux';
@@ -443,12 +472,12 @@ For command execution on ${osType}, use appropriate command separators (${osType
       case 'create_file':
       case 'update_file':
         return typeof fixedStep.path === 'string' && fixedStep.path.trim().length > 0 &&
-               typeof fixedStep.content === 'string';
+          typeof fixedStep.content === 'string';
 
       case 'patch_file':
         return typeof fixedStep.path === 'string' && fixedStep.path.trim().length > 0 &&
-               typeof fixedStep.oldContent === 'string' && fixedStep.oldContent.trim().length > 0 &&
-               typeof fixedStep.newContent === 'string' && fixedStep.newContent.trim().length > 0;
+          typeof fixedStep.oldContent === 'string' && fixedStep.oldContent.trim().length > 0 &&
+          typeof fixedStep.newContent === 'string' && fixedStep.newContent.trim().length > 0;
 
       case 'delete_file':
       case 'read_file':
@@ -459,9 +488,9 @@ For command execution on ${osType}, use appropriate command separators (${osType
 
       case 'rename_dir':
         return (typeof fixedStep.path === 'string' && fixedStep.path.trim().length > 0 &&
-                typeof fixedStep.newPath === 'string' && fixedStep.newPath.trim().length > 0) ||
-               (typeof fixedStep.oldPath === 'string' && fixedStep.oldPath.trim().length > 0 &&
-                typeof fixedStep.newPath === 'string' && fixedStep.newPath.trim().length > 0);
+          typeof fixedStep.newPath === 'string' && fixedStep.newPath.trim().length > 0) ||
+          (typeof fixedStep.oldPath === 'string' && fixedStep.oldPath.trim().length > 0 &&
+            typeof fixedStep.newPath === 'string' && fixedStep.newPath.trim().length > 0);
 
       default:
         return false;
@@ -646,6 +675,16 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         }
 
         plan = parsed.plan;
+        // ✅ Fix: Handle plain queries (no plan / empty plan)
+        if (!Array.isArray(plan) || plan.length === 0) {
+          ui.section('Response');
+          console.log(explanation || response);
+          ui.space();
+
+          ui.success('No tasks generated (plain query). Nothing to execute.');
+          return;
+        }
+
 
         // Add assistant response to history (summarized for context efficiency)
         if (trackHistory) {
