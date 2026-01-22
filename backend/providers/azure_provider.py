@@ -56,6 +56,7 @@ class AzureProvider(BaseProvider):
             model=model,
             messages=azure_messages,
             temperature=temperature,
+            max_tokens=max_tokens,
             top_p=kwargs.get("top_p", 1.0)
         )
         
