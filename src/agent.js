@@ -47,6 +47,7 @@ class Agent {
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
     this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
     this.maxHistoryLength = options.maxHistoryLength || 10; // Max conversation turns to keep
+    this.customPrompt = null; // Custom system prompt from Coderrr.md
 
     // Load user provider configuration
     this.providerConfig = configManager.getConfig();
@@ -77,6 +78,21 @@ class Agent {
   }
 
   /**
+   * Load custom system prompt from Coderrr.md in project directory
+   */
+  loadCustomPrompt() {
+    try {
+      const customPromptPath = path.join(this.workingDir, 'Coderrr.md');
+      if (fs.existsSync(customPromptPath)) {
+        this.customPrompt = fs.readFileSync(customPromptPath, 'utf8').trim();
+        ui.info('Loaded custom system prompt from Coderrr.md');
+      }
+    } catch (error) {
+      ui.warning(`Could not load Coderrr.md: ${error.message}`);
+    }
+  }
+
+  /**
    * Get formatted conversation history for the backend
    */
   getFormattedHistory() {
@@ -91,6 +107,11 @@ class Agent {
    */
   async chat(prompt, options = {}) {
     try {
+      // Load custom prompt on first request if not already loaded
+      if (this.customPrompt === null) {
+        this.loadCustomPrompt();
+      }
+
       // Scan codebase on first request if enabled
       if (this.scanOnFirstRequest && !this.codebaseContext) {
         const scanSpinner = ui.spinner('Scanning codebase...');
@@ -106,8 +127,16 @@ class Agent {
         }
       }
 
-      // Enhance prompt with codebase context
+      // Enhance prompt with custom prompt and codebase context
       let enhancedPrompt = prompt;
+
+      // Prepend custom prompt if available
+      if (this.customPrompt) {
+        enhancedPrompt = `${this.customPrompt}
+
+${prompt}`;
+      }
+
       if (this.codebaseContext) {
         const osType = process.platform === 'win32' ? 'Windows' :
           process.platform === 'darwin' ? 'macOS' : 'Linux';
@@ -269,8 +298,10 @@ For command execution on ${osType}, use appropriate command separators (${osType
   async executePlan(plan) {
     if (!Array.isArray(plan) || plan.length === 0) {
       ui.warning('No plan to execute');
-      return;
+      return { stats: { completed: 0, total: 0, pending: 0 }, executionLog: [] };
     }
+
+    const executionLog = [];
 
     // Parse and display TODOs
     this.todoManager.parseTodos(plan);
@@ -303,6 +334,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
 
       let retryCount = 0;
       let stepSuccess = false;
+      let stepResult = null;
 
       while (!stepSuccess && retryCount <= this.maxRetries) {
         try {
@@ -312,6 +344,10 @@ For command execution on ${osType}, use appropriate command separators (${osType
               requirePermission: true,
               cwd: this.workingDir
             });
+
+            stepResult = result.success
+              ? `Executed command: "${step.command}"`
+              : `Failed command: "${step.command}". Error: ${result.error || result.output}`;
 
             if (!result.success && !result.cancelled) {
               const errorMsg = result.error || result.output || 'Unknown error';
@@ -342,6 +378,8 @@ For command execution on ${osType}, use appropriate command separators (${osType
                 ui.error(`Command failed${this.autoRetry ? ` after ${this.maxRetries + 1} attempts` : ''}, stopping execution`);
                 break;
               }
+            } else {
+              stepSuccess = true;
             }
 
             if (result.cancelled) {
@@ -353,11 +391,13 @@ For command execution on ${osType}, use appropriate command separators (${osType
           } else {
             // File operation
             await this.fileOps.execute(step);
+            stepResult = `${step.action}: "${step.path}"`;
             stepSuccess = true;
           }
 
           if (stepSuccess) {
             this.todoManager.complete(i);
+            executionLog.push(`✓ Step ${i + 1}: ${stepResult}`);
           }
         } catch (error) {
           const errorMsg = error.message || 'Unknown error';
@@ -367,6 +407,10 @@ For command execution on ${osType}, use appropriate command separators (${osType
             ui.error(`Non-retryable error: ${errorMsg}`);
             ui.warning('⚠️  This type of error cannot be auto-fixed (file/permission/config issue)');
             break; // Don't retry, let the outer loop ask user what to do
+          }
+
+          if (!stepSuccess && retryCount === this.maxRetries) {
+            executionLog.push(`✗ Step ${i + 1} Failed: ${error.message}`);
           }
 
           if (this.autoRetry && retryCount < this.maxRetries) {
@@ -420,7 +464,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
       }
     }
 
-    return stats;
+    return { stats, executionLog };
   }
 
   /**
@@ -443,12 +487,12 @@ For command execution on ${osType}, use appropriate command separators (${osType
       case 'create_file':
       case 'update_file':
         return typeof fixedStep.path === 'string' && fixedStep.path.trim().length > 0 &&
-               typeof fixedStep.content === 'string';
+          typeof fixedStep.content === 'string';
 
       case 'patch_file':
         return typeof fixedStep.path === 'string' && fixedStep.path.trim().length > 0 &&
-               typeof fixedStep.oldContent === 'string' && fixedStep.oldContent.trim().length > 0 &&
-               typeof fixedStep.newContent === 'string' && fixedStep.newContent.trim().length > 0;
+          typeof fixedStep.oldContent === 'string' && fixedStep.oldContent.trim().length > 0 &&
+          typeof fixedStep.newContent === 'string' && fixedStep.newContent.trim().length > 0;
 
       case 'delete_file':
       case 'read_file':
@@ -459,9 +503,9 @@ For command execution on ${osType}, use appropriate command separators (${osType
 
       case 'rename_dir':
         return (typeof fixedStep.path === 'string' && fixedStep.path.trim().length > 0 &&
-                typeof fixedStep.newPath === 'string' && fixedStep.newPath.trim().length > 0) ||
-               (typeof fixedStep.oldPath === 'string' && fixedStep.oldPath.trim().length > 0 &&
-                typeof fixedStep.newPath === 'string' && fixedStep.newPath.trim().length > 0);
+          typeof fixedStep.newPath === 'string' && fixedStep.newPath.trim().length > 0) ||
+          (typeof fixedStep.oldPath === 'string' && fixedStep.oldPath.trim().length > 0 &&
+            typeof fixedStep.newPath === 'string' && fixedStep.newPath.trim().length > 0);
 
       default:
         return false;
@@ -631,6 +675,9 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
       // Try to parse JSON plan - handle both object responses (new backend) and string responses
       let plan;
       let explanation = '';
+      let stats = { completed: 0, total: 0, pending: 0 };
+      let executionLog = [];
+
       try {
         // If response is already an object with explanation/plan, use it directly
         const parsed = typeof response === 'object' && response !== null && response.plan
@@ -647,6 +694,75 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
 
         plan = parsed.plan;
 
+        // ✅ Special handling for read_file queries (questions about files)
+        // If the plan only contains read_file actions, execute them and ask AI to interpret
+        const isReadOnlyQuery = Array.isArray(plan) &&
+          plan.length > 0 &&
+          plan.every(step => step.action === 'read_file');
+
+        if (isReadOnlyQuery) {
+          ui.info('Reading files to answer your question...');
+
+          // Read all requested files
+          const fileContents = [];
+          for (const step of plan) {
+            try {
+              const result = await this.fileOps.readFile(step.path);
+              fileContents.push({
+                path: step.path,
+                content: result.content
+              });
+            } catch (error) {
+              fileContents.push({
+                path: step.path,
+                error: error.message
+              });
+            }
+          }
+
+          // Make follow-up call with file contents
+          const followUpPrompt = `Based on the following file contents, please answer the user's original question: "${userRequest}"
+
+FILE CONTENTS:
+${fileContents.map(f => f.error
+            ? `--- ${f.path} ---\nError: ${f.error}`
+            : `--- ${f.path} ---\n${f.content}`
+          ).join('\n\n')}
+
+Provide a helpful explanation. Return JSON with "explanation" containing your answer and an empty "plan" array.`;
+
+          const followUpResponse = await this.chat(followUpPrompt);
+          const followUpParsed = typeof followUpResponse === 'object' && followUpResponse !== null
+            ? followUpResponse
+            : this.parseJsonResponse(followUpResponse);
+
+          ui.section('Response');
+          console.log(followUpParsed.explanation || followUpResponse);
+          ui.space();
+
+          if (trackHistory) {
+            this.addToHistory('assistant', followUpParsed.explanation || 'Answered question about file contents.');
+          }
+
+          ui.success('Question answered.');
+          return;
+        }
+
+        // ✅ Fix: Handle plain queries (no plan / empty plan)
+        if (!Array.isArray(plan) || plan.length === 0) {
+          ui.section('Response');
+          console.log(explanation || response);
+          ui.space();
+
+          ui.success('No tasks generated (plain query). Nothing to execute.');
+          return;
+        }
+
+        // Execute the plan (now that plan is defined)
+        const result = await this.executePlan(plan);
+        stats = result.stats;
+        executionLog = result.executionLog;
+
         // Add assistant response to history (summarized for context efficiency)
         if (trackHistory) {
           const historySummary = explanation ||
@@ -658,8 +774,17 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         console.log(response);
 
         // Still add to history even if parsing failed
-        if (trackHistory) {
-          this.addToHistory('assistant', response.substring(0, 500));
+        if (trackHistory && executionLog && executionLog.length > 0) {
+          const memoryUpdate = `
+SYSTEM REPORT - EXECUTION COMPLETED:
+The following actions were performed successfully:
+${executionLog.join('\n')}
+
+Current State:
+- Tasks Completed: ${stats.completed}/${stats.total}
+- Ready for next instruction.
+`;
+          this.addToHistory('assistant', memoryUpdate);
         }
 
         const shouldContinue = await ui.confirm('Try manual execution mode?', false);
@@ -670,9 +795,6 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         // No structured plan available
         return;
       }
-
-      // Execute the plan
-      const stats = await this.executePlan(plan);
 
       // Run tests if all tasks completed successfully
       if (this.autoTest && stats.completed === stats.total && stats.total > 0) {
