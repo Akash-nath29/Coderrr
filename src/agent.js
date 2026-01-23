@@ -10,6 +10,8 @@ const GitOperations = require('./gitOps');
 const { sanitizeAxiosError, formatUserError, createSafeError, isNetworkError } = require('./errorHandler');
 const configManager = require('./configManager');
 const { getProvider } = require('./providers');
+const memoryManager = require('./memoryManager');
+
 
 /**
  * Core AI Agent that communicates with backend and executes plans
@@ -50,7 +52,11 @@ class Agent {
 
     // Load user provider configuration
     this.providerConfig = configManager.getConfig();
+
+    // Initialize cross-session memory
+    this.memory = memoryManager;
   }
+
 
   /**
    * Add a message to conversation history
@@ -127,6 +133,8 @@ DIRECTORIES:
 ${this.codebaseContext.directories.slice(0, 20).join('\n')}
 EXISTING FILES:
 ${this.codebaseContext.files.slice(0, 30).map(f => `- ${f.path} (${f.size} bytes)`).join('\n')}
+
+${this.memory.getSummaryForAI()}
 
 When editing existing files, use EXACT filenames from the list above. When creating new files, ensure they don't conflict with existing ones.
 For command execution on ${osType}, use appropriate command separators (${osType === 'Windows' ? 'semicolon (;)' : 'ampersand (&&)'}).`;
@@ -487,8 +495,10 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
       return null;
     } catch (error) {
       ui.warning(`Self-healing failed: ${error.message}`);
+      this.memory.addError(error.message, `Self-healing failed for step: ${failedStep.summary}`);
       return null;
     }
+
   }
 
   /**
@@ -643,10 +653,18 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
       ui.section('Complete');
       ui.success('Agent finished processing request');
 
+      // Record to cross-session memory
+      this.memory.addConversation(`User: ${userRequest.substring(0, 100)}${userRequest.length > 100 ? '...' : ''}`);
+      if (explanation) {
+        this.memory.addDecision('AI Plan Explanation', explanation.substring(0, 200));
+      }
+
     } catch (error) {
       ui.error(`Agent error: ${error.message}`);
+      this.memory.addError(error.message, `Processing request: ${userRequest.substring(0, 50)}`);
       throw error;
     }
+
   }
 
   /**

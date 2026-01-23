@@ -62,7 +62,9 @@ Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable pl
 - **Codebase Intelligence** - Scans and understands project structure for accurate file editing
 - **Git Integration** - Automatic checkpoints and commits with easy rollback capability
 - **Interactive Mode** - Continuous conversation loop for iterative development
+- **Cross-Session Memory** - Remembers past conversations, decisions, and errors across restarts
 - **Beautiful CLI** - Clean interface with progress indicators and status updates
+
 
 ### Advanced Features
 
@@ -319,7 +321,35 @@ This means when you ask to "edit the agent file", it knows you mean `src/agent.j
 - **Diff Preview** - See changes before files are modified
 - **Step-by-step Execution** - Each action is executed individually with feedback
 - **Error Handling** - Graceful error handling with options to continue or stop
+- **Cross-Session Memory** - History and preferences persist across sessions
 - **Git-Friendly** - Works best in Git repositories for easy rollback
+
+---
+
+## 🧠 Cross-Session Memory
+
+Coderrr features persistent memory that allows it to learn from your past interactions, remember your coding preferences, and avoid repeating historical errors.
+
+### What is stored?
+-   **Conversations** - Summaries of what you worked on.
+-   **Decisions** - Technical choices (e.g., "Always use Jest for testing").
+-   **Errors** - Historical errors to help the agent avoid them in future self-healing attempts.
+
+### Configuration & Management
+Memory is stored locally at `~/.coderrr/memory.json`. 
+
+-   **Pruning** - To save context window size, memory is limited to the last 30 entries per category (FIFO).
+-   **Resetting Memory** - If you want to start completely fresh:
+    ```bash
+    # Windows
+    del $HOME\.coderrr\memory.json
+    
+    # Linux/Mac
+    rm ~/.coderrr/memory.json
+    ```
+
+Cross-session memory is automatically injected into every request to provide the agent with long-term context.
+
 
 ---
 
