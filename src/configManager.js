@@ -11,6 +11,8 @@ const os = require('os');
 
 const CONFIG_DIR = path.join(os.homedir(), '.coderrr');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
+const MEMORY_FILE = path.join(CONFIG_DIR, 'memory.json');
+const MAX_MEMORY_CONVERSATIONS = 30; // Store last 30 conversations
 
 /**
  * Ensure config directory exists
@@ -108,6 +110,104 @@ function getConfigSummary() {
     };
 }
 
+/**
+ * Initialize the project-local .coderrr directory and memory.json file
+ * @param {string} workingDir - The project working directory
+ */
+function initializeProjectStorage(workingDir) {
+    const projectConfigDir = path.join(workingDir, '.coderrr');
+    const projectMemoryFile = path.join(projectConfigDir, 'memory.json');
+
+    if (!fs.existsSync(projectConfigDir)) {
+        fs.mkdirSync(projectConfigDir, { recursive: true });
+    }
+
+    // Create memory.json if it doesn't exist
+    if (!fs.existsSync(projectMemoryFile)) {
+        fs.writeFileSync(projectMemoryFile, JSON.stringify({ conversations: [] }, null, 2));
+    }
+
+    return { projectConfigDir, projectMemoryFile };
+}
+
+/**
+ * Load conversation memory from project-local disk
+ * @param {string} workingDir - The project working directory
+ * @returns {Array} Array of conversation messages
+ */
+function loadProjectMemory(workingDir) {
+    try {
+        const { projectMemoryFile } = initializeProjectStorage(workingDir);
+
+        if (!fs.existsSync(projectMemoryFile)) {
+            return [];
+        }
+
+        const content = fs.readFileSync(projectMemoryFile, 'utf-8');
+        const data = JSON.parse(content);
+
+        // Validate loaded data - ensure each message has role and content
+        const conversations = data.conversations || [];
+        return conversations.filter(msg =>
+            msg &&
+            typeof msg.role === 'string' &&
+            (msg.role === 'user' || msg.role === 'assistant') &&
+            typeof msg.content === 'string' &&
+            msg.content.length > 0
+        );
+    } catch (error) {
+        console.error('Error loading project memory:', error.message);
+        return [];
+    }
+}
+
+/**
+ * Save conversation memory to project-local disk
+ * Keeps only the last MAX_MEMORY_CONVERSATIONS messages
+ * @param {string} workingDir - The project working directory
+ * @param {Array} conversations - Array of conversation messages
+ */
+function saveProjectMemory(workingDir, conversations) {
+    try {
+        const { projectMemoryFile } = initializeProjectStorage(workingDir);
+
+        // Keep only the last MAX_MEMORY_CONVERSATIONS * 2 messages (user + assistant pairs)
+        const maxMessages = MAX_MEMORY_CONVERSATIONS * 2;
+        const trimmedConversations = conversations.slice(-maxMessages);
+
+        const data = {
+            conversations: trimmedConversations,
+            updatedAt: new Date().toISOString()
+        };
+
+        fs.writeFileSync(projectMemoryFile, JSON.stringify(data, null, 2));
+    } catch (error) {
+        console.error('Error saving project memory:', error.message);
+    }
+}
+
+/**
+ * Clear project-local conversation memory
+ * @param {string} workingDir - The project working directory
+ */
+function clearProjectMemory(workingDir) {
+    try {
+        const { projectMemoryFile } = initializeProjectStorage(workingDir);
+        fs.writeFileSync(projectMemoryFile, JSON.stringify({ conversations: [] }, null, 2));
+    } catch (error) {
+        console.error('Error clearing project memory:', error.message);
+    }
+}
+
+/**
+ * Get project memory file path (for display purposes)
+ * @param {string} workingDir - The project working directory
+ * @returns {string}
+ */
+function getProjectMemoryPath(workingDir) {
+    return path.join(workingDir, '.coderrr', 'memory.json');
+}
+
 module.exports = {
     getConfig,
     saveConfig,
@@ -116,6 +216,11 @@ module.exports = {
     getConfigPath,
     maskApiKey,
     getConfigSummary,
+    initializeProjectStorage,
+    loadProjectMemory,
+    saveProjectMemory,
+    clearProjectMemory,
+    getProjectMemoryPath,
     CONFIG_DIR,
     CONFIG_FILE
 };

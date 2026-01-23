@@ -39,7 +39,6 @@ class Agent {
     this.todoManager = new TodoManager();
     this.scanner = new CodebaseScanner(this.workingDir);
     this.git = new GitOperations(this.workingDir);
-    this.conversationHistory = [];
     this.autoTest = options.autoTest !== false; // Default to true
     this.autoRetry = options.autoRetry !== false; // Default to true - self-healing on errors
     this.maxRetries = options.maxRetries || 2; // Default 2 retries per step
@@ -48,6 +47,10 @@ class Agent {
     this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
     this.maxHistoryLength = options.maxHistoryLength || 10; // Max conversation turns to keep
     this.customPrompt = null; // Custom system prompt from Coderrr.md
+
+    // Initialize project-local storage and load cross-session memory
+    configManager.initializeProjectStorage(this.workingDir);
+    this.conversationHistory = configManager.loadProjectMemory(this.workingDir);
 
     // Load user provider configuration
     this.providerConfig = configManager.getConfig();
@@ -67,6 +70,9 @@ class Agent {
     if (this.conversationHistory.length > maxMessages) {
       this.conversationHistory = this.conversationHistory.slice(-maxMessages);
     }
+
+    // Persist to disk for cross-session memory
+    configManager.saveProjectMemory(this.workingDir, this.conversationHistory);
   }
 
   /**
@@ -74,6 +80,7 @@ class Agent {
    */
   clearHistory() {
     this.conversationHistory = [];
+    configManager.clearProjectMemory(this.workingDir);
     ui.info('Conversation history cleared');
   }
 
@@ -94,11 +101,21 @@ class Agent {
 
   /**
    * Get formatted conversation history for the backend
+   * Limits to 20 items and 5000 chars per message to match backend validation
    */
   getFormattedHistory() {
-    return this.conversationHistory.map(msg => ({
+    // Backend limits: max_items=20, content max_length=5000
+    const MAX_HISTORY_ITEMS = 20;
+    const MAX_CONTENT_LENGTH = 5000;
+
+    // Take only the most recent items that fit the limit
+    const recentHistory = this.conversationHistory.slice(-MAX_HISTORY_ITEMS);
+
+    return recentHistory.map(msg => ({
       role: msg.role,
-      content: msg.content
+      content: msg.content.length > MAX_CONTENT_LENGTH
+        ? msg.content.substring(0, MAX_CONTENT_LENGTH)
+        : msg.content
     }));
   }
 
@@ -141,7 +158,7 @@ ${prompt}`;
         const osType = process.platform === 'win32' ? 'Windows' :
           process.platform === 'darwin' ? 'macOS' : 'Linux';
 
-        enhancedPrompt = `${prompt}
+        enhancedPrompt = `${enhancedPrompt}
 
 SYSTEM ENVIRONMENT:
 Operating System: ${osType}
