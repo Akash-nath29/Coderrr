@@ -89,7 +89,14 @@ class FileOperations {
       // Write file
       fs.writeFileSync(absolutePath, content, 'utf8');
       ui.displayFileOp('create_file', filePath, 'success');
-      return { success: true, path: absolutePath };
+
+      // Return with diff data (new file = empty old content)
+      return {
+        success: true,
+        path: absolutePath,
+        oldContent: '',
+        newContent: content
+      };
     } catch (error) {
       ui.displayFileOp('create_file', filePath, 'error');
       throw error;
@@ -108,10 +115,19 @@ class FileOperations {
         throw new Error(`File not found: ${filePath}`);
       }
 
+      // Read existing content for diff
+      const oldContent = fs.readFileSync(absolutePath, 'utf8');
+
       // Write file
       fs.writeFileSync(absolutePath, content, 'utf8');
       ui.displayFileOp('update_file', filePath, 'success');
-      return { success: true, path: absolutePath };
+
+      return {
+        success: true,
+        path: absolutePath,
+        oldContent: oldContent,
+        newContent: content
+      };
     } catch (error) {
       ui.displayFileOp('update_file', filePath, 'error');
       throw error;
@@ -131,19 +147,25 @@ class FileOperations {
       }
 
       // Read current content
-      let content = fs.readFileSync(absolutePath, 'utf8');
+      const originalContent = fs.readFileSync(absolutePath, 'utf8');
 
       // Replace old content with new content
-      if (!content.includes(oldContent)) {
+      if (!originalContent.includes(oldContent)) {
         throw new Error(`Pattern not found in file: ${filePath}`);
       }
 
-      content = content.replace(oldContent, newContent);
+      const patchedContent = originalContent.replace(oldContent, newContent);
 
       // Write back
-      fs.writeFileSync(absolutePath, content, 'utf8');
+      fs.writeFileSync(absolutePath, patchedContent, 'utf8');
       ui.displayFileOp('patch_file', filePath, 'success');
-      return { success: true, path: absolutePath };
+
+      return {
+        success: true,
+        path: absolutePath,
+        oldContent: originalContent,
+        newContent: patchedContent
+      };
     } catch (error) {
       ui.displayFileOp('patch_file', filePath, 'error');
       throw error;
@@ -168,10 +190,19 @@ class FileOperations {
         throw new Error(`File not found: ${filePath}`);
       }
 
+      // Read content before deleting for diff
+      const oldContent = fs.readFileSync(absolutePath, 'utf8');
+
       // Delete file
       fs.unlinkSync(absolutePath);
       ui.displayFileOp('delete_file', filePath, 'success');
-      return { success: true, path: absolutePath };
+
+      return {
+        success: true,
+        path: absolutePath,
+        oldContent: oldContent,
+        newContent: ''
+      };
     } catch (error) {
       ui.displayFileOp('delete_file', filePath, 'error');
       throw error;
