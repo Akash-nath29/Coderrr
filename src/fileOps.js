@@ -10,17 +10,49 @@ const ui = require('./ui');
  * asynchronous to ensure non-blocking behavior and proper error handling.
  */
 
+// Protected paths that should never be deleted by Coderrr
+const PROTECTED_PATHS = [
+  'Coderrr.md',
+  '.coderrr'
+];
+
 class FileOperations {
   constructor(workingDir = process.cwd()) {
     this.workingDir = workingDir;
   }
 
   /**
+   * Check if a path is protected (Coderrr config files that should never be deleted)
+   * @param {string} filePath - Path to check
+   * @returns {boolean} True if path is protected
+   */
+  isProtectedPath(filePath) {
+    const basename = path.basename(filePath);
+    const relativePath = path.isAbsolute(filePath)
+      ? path.relative(this.workingDir, filePath)
+      : filePath;
+
+    // Check if the file/folder itself is protected
+    if (PROTECTED_PATHS.includes(basename)) {
+      return true;
+    }
+
+    // Check if path is inside a protected folder
+    for (const protectedPath of PROTECTED_PATHS) {
+      if (relativePath.startsWith(protectedPath + path.sep) || relativePath.startsWith(protectedPath + '/')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Resolve absolute path from relative path
    */
   resolvePath(filePath) {
-    return path.isAbsolute(filePath) 
-      ? filePath 
+    return path.isAbsolute(filePath)
+      ? filePath
       : path.join(this.workingDir, filePath);
   }
 
@@ -141,6 +173,12 @@ class FileOperations {
     try {
       const absolutePath = this.resolvePath(filePath);
 
+      // Check if path is protected
+      if (this.isProtectedPath(filePath)) {
+        ui.warning(`Protected path cannot be deleted: ${filePath}`);
+        throw new Error(`Cannot delete protected Coderrr config: ${filePath}`);
+      }
+
       // Check if file exists
       if (!(await this.fileExists(absolutePath))) {
         throw new Error(`File not found: ${filePath}`);
@@ -214,6 +252,12 @@ class FileOperations {
   async deleteDir(dirPath) {
     try {
       const absolutePath = this.resolvePath(dirPath);
+
+      // Check if path is protected
+      if (this.isProtectedPath(dirPath)) {
+        ui.warning(`Protected directory cannot be deleted: ${dirPath}`);
+        throw new Error(`Cannot delete protected Coderrr config: ${dirPath}`);
+      }
 
       // Check if directory exists
       if (!(await this.fileExists(absolutePath))) {
