@@ -372,14 +372,14 @@ For command execution on ${osType}, use appropriate command separators (${osType
               // Check if this error is retryable (can be fixed by AI)
               if (!this.isRetryableError(errorMsg)) {
                 ui.error(`Non-retryable error: ${errorMsg}`);
-                ui.warning('⚠️  This type of error cannot be auto-fixed (file/permission/config issue)');
+                ui.warning('This type of error cannot be auto-fixed (file/permission/config issue)');
                 break; // Don't retry, let the outer loop ask user what to do
               }
 
               // Command failed - attempt self-healing if enabled and error is retryable
               if (this.autoRetry && retryCount < this.maxRetries) {
                 ui.warning(`Command failed (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
-                ui.info('🔧 Analyzing error and generating fix...');
+                ui.info('Analyzing error and generating fix...');
 
                 const fixedStep = await this.selfHeal(step, errorMsg, retryCount);
 
@@ -407,9 +407,14 @@ For command execution on ${osType}, use appropriate command separators (${osType
             }
           } else {
             // File operation
-            await this.fileOps.execute(step);
+            const result = await this.fileOps.execute(step);
             stepResult = `${step.action}: "${step.path}"`;
             stepSuccess = true;
+
+            // Display diff if available (for create, update, patch, delete)
+            if (result && (result.oldContent !== undefined || result.newContent !== undefined)) {
+              ui.displayDiff(step.path, result.oldContent, result.newContent);
+            }
           }
 
           if (stepSuccess) {
@@ -422,7 +427,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
           // Check if this error is retryable (can be fixed by AI)
           if (!this.isRetryableError(errorMsg)) {
             ui.error(`Non-retryable error: ${errorMsg}`);
-            ui.warning('⚠️  This type of error cannot be auto-fixed (file/permission/config issue)');
+            ui.warning('This type of error cannot be auto-fixed (file/permission/config issue)');
             break; // Don't retry, let the outer loop ask user what to do
           }
 
@@ -432,7 +437,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
 
           if (this.autoRetry && retryCount < this.maxRetries) {
             ui.warning(`Step failed: ${errorMsg} (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
-            ui.info('🔧 Analyzing error and generating fix...');
+            ui.info('Analyzing error and generating fix...');
 
             const fixedStep = await this.selfHeal(step, errorMsg, retryCount);
 
@@ -567,7 +572,7 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
   ]
 }`;
 
-      ui.info('🔧 Requesting fix from AI...');
+      ui.info('Requesting fix from AI...');
       const response = await this.chat(healingPrompt);
 
       // Handle both object response (from new backend) and string response
@@ -576,7 +581,7 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         : this.parseJsonResponse(response);
 
       if (parsed.explanation) {
-        ui.info(`💡 Fix: ${parsed.explanation}`);
+        ui.info(`Fix: ${parsed.explanation}`);
       }
 
       // Extract the fixed step from the plan array
@@ -663,7 +668,7 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
     });
 
     if (result.success) {
-      ui.success('All tests passed! ✨');
+      ui.success('All tests passed!');
     } else {
       ui.error('Some tests failed');
     }
