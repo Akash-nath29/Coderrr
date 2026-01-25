@@ -1,21 +1,26 @@
-# Centralized Logging Implementation
+# Refactor CodebaseScanner - Break into Smaller Classes
 
 ## Overview
-Replace inconsistent console.log, console.error, console.warn usage with a centralized logging system to enable log level control and better production output management.
+The CodebaseScanner class is too large (500+ lines) and has multiple responsibilities. Refactor into smaller, focused classes while maintaining backward compatibility.
 
-## Tasks
-- [x] Create src/logger.js with configurable log levels (debug, info, warn, error)
-- [x] Update src/codebaseScanner.js to use logger instead of console.error
-- [x] Review and update any other src/ files with direct console usage
-- [x] Test the logging implementation
+## Classes to Create
+- [x] FileScanner: Directory scanning, file discovery, filtering
+- [x] CacheManager: Caching of scan results
+- [x] SearchEngine: Semantic, regex, fuzzy search functionality
+- [x] ContentProcessor: Content chunking for large files
+- [x] Refactor CodebaseScanner: Make it a facade orchestrating the above classes
+
+## Implementation Steps
+1. [x] Create FileScanner class in src/fileScanner.js
+2. [x] Create CacheManager class in src/cacheManager.js
+3. [x] Create SearchEngine class in src/searchEngine.js
+4. [x] Create ContentProcessor class in src/contentProcessor.js
+5. [x] Update CodebaseScanner to use the new classes
+6. [x] Test the refactored code
 
 ## Files to Modify
-- src/logger.js (new file)
-- src/codebaseScanner.js
-- Potentially other src/ files if direct console usage found
-
-## Acceptance Criteria
-- All direct console.log/error/warn in src/ replaced with logger calls
-- Logger supports configurable log levels
-- Production builds can disable debug/info logs
-- Error logs remain visible in all environments
+- [x] src/codebaseScanner.js (refactor to use new classes)
+- [x] Create: src/fileScanner.js
+- [x] Create: src/cacheManager.js
+- [x] Create: src/searchEngine.js
+- [x] Create: src/contentProcessor.js
