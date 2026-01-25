@@ -44,10 +44,10 @@ program
     if (options.show) {
       const summary = configManager.getConfigSummary();
       if (!summary) {
-        console.log(chalk.yellow('\n⚠ No configuration found.'));
-        console.log(chalk.gray('Run `coderrr config` to set up your provider.\n'));
+        console.log(chalk.yellow('\n▲ No configuration found.'));
+        console.log(chalk.gray('  Run `coderrr config` to set up your provider.\n'));
       } else {
-        console.log(chalk.cyan.bold('\n🔧 Current Configuration\n'));
+        console.log(chalk.cyan.bold('\n├─ Current Configuration\n'));
         console.log(`  Provider: ${chalk.white(summary.provider)}`);
         console.log(`  Model:    ${chalk.white(summary.model)}`);
         console.log(`  API Key:  ${chalk.gray(summary.apiKey)}`);
@@ -62,13 +62,13 @@ program
     // Clear config
     if (options.clear) {
       configManager.clearConfig();
-      console.log(chalk.green('✓ Configuration cleared.\n'));
+      console.log(chalk.green('■ Configuration cleared.\n'));
       return;
     }
 
     // Interactive configuration
-    console.log(chalk.cyan.bold('\n🔧 Coderrr Configuration\n'));
-    console.log(chalk.gray('Configure your AI provider and API key.\n'));
+    console.log(chalk.cyan.bold('\n├─ Coderrr Configuration\n'));
+    console.log(chalk.gray('   Configure your AI provider and API key.\n'));
 
     try {
       // Step 1: Select provider
@@ -105,7 +105,7 @@ program
         ]);
         apiKey = key;
       } else {
-        console.log(chalk.green(`\n  ✓ ${providerInfo.name} doesn't require an API key.\n`));
+        console.log(chalk.green(`\n  ■ ${providerInfo.name} doesn't require an API key.\n`));
       }
 
       // Step 2.5: Custom endpoint (for Ollama)
@@ -123,7 +123,7 @@ program
 
         // Show note for Ollama
         if (providerInfo.note) {
-          console.log(chalk.yellow(`\n  ⚠ ${providerInfo.note}\n`));
+          console.log(chalk.yellow(`\n  ▲ ${providerInfo.note}\n`));
         }
       }
 
@@ -149,7 +149,7 @@ program
 
       configManager.saveConfig(config);
 
-      console.log(chalk.green('\n✓ Configuration saved!\n'));
+      console.log(chalk.green('\n■ Configuration saved!\n'));
       console.log(`  Provider: ${chalk.white(providerInfo.name)}`);
       console.log(`  Model:    ${chalk.white(model)}`);
       if (apiKey) {
@@ -161,7 +161,7 @@ program
 
     } catch (error) {
       if (error.name === 'ExitPromptError') {
-        console.log(chalk.yellow('\n⚠ Configuration cancelled.\n'));
+        console.log(chalk.yellow('\n▲ Configuration cancelled.\n'));
       } else {
         console.error(chalk.red(`\n✗ Error: ${error.message}\n`));
       }
@@ -236,7 +236,7 @@ program
       if (parsed) {
         console.log(JSON.stringify(parsed, null, 2));
       } else {
-        console.log(chalk.yellow('\n⚠ Could not parse a structured plan from the AI response.'));
+        console.log(chalk.yellow('\n▲ Could not parse a structured plan from the AI response.'));
         console.log(chalk.gray('Raw response:'));
         console.log(response);
       }
