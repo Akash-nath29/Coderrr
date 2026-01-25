@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const logger = require('./logger');
 
 /**
  * Codebase Scanner - Discovers and reads source files in the project
@@ -199,7 +200,7 @@ class CodebaseScanner {
       }
     } catch (error) {
       // Skip directories we can't access
-      console.error(`Error scanning ${dirPath}:`, error.message);
+      logger.error(`Error scanning ${dirPath}:`, error.message);
     }
     
     return result;
