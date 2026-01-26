@@ -46,7 +46,8 @@ class Agent {
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
     this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
     this.maxHistoryLength = options.maxHistoryLength || 10; // Max conversation turns to keep
-    this.customPrompt = null; // Custom system prompt from Coderrr.md
+    this.skillsPrompt = null; // Skills prompt from Skills.md (persistent skills)
+    this.customPrompt = null; // Custom system prompt from Coderrr.md (task-specific)
 
     // Initialize project-local storage and load cross-session memory
     configManager.initializeProjectStorage(this.workingDir);
@@ -85,14 +86,31 @@ class Agent {
   }
 
   /**
+   * Load skills prompt from Skills.md in project directory
+   * Skills are persistent guidance that applies to all tasks (e.g., design guidelines)
+   */
+  loadSkillsPrompt() {
+    try {
+      const skillsPath = path.join(this.workingDir, 'Skills.md');
+      if (fs.existsSync(skillsPath)) {
+        this.skillsPrompt = fs.readFileSync(skillsPath, 'utf8').trim();
+        ui.info('Loaded skills from Skills.md');
+      }
+    } catch (error) {
+      ui.warning(`Could not load Skills.md: ${error.message}`);
+    }
+  }
+
+  /**
    * Load custom system prompt from Coderrr.md in project directory
+   * This is task-specific guidance that may change per task
    */
   loadCustomPrompt() {
     try {
       const customPromptPath = path.join(this.workingDir, 'Coderrr.md');
       if (fs.existsSync(customPromptPath)) {
         this.customPrompt = fs.readFileSync(customPromptPath, 'utf8').trim();
-        ui.info('Loaded custom system prompt from Coderrr.md');
+        ui.info('Loaded task prompt from Coderrr.md');
       }
     } catch (error) {
       ui.warning(`Could not load Coderrr.md: ${error.message}`);
@@ -124,6 +142,11 @@ class Agent {
    */
   async chat(prompt, options = {}) {
     try {
+      // Load skills prompt on first request if not already loaded
+      if (this.skillsPrompt === null) {
+        this.loadSkillsPrompt();
+      }
+
       // Load custom prompt on first request if not already loaded
       if (this.customPrompt === null) {
         this.loadCustomPrompt();
@@ -144,14 +167,21 @@ class Agent {
         }
       }
 
-      // Enhance prompt with custom prompt and codebase context
+      // Build enhanced prompt with priority:
+      // 1. System Prompt (embedded in backend)
+      // 2. Skills.md (persistent skills)
+      // 3. Coderrr.md (task-specific guidance)
+      // 4. User prompt
       let enhancedPrompt = prompt;
 
-      // Prepend custom prompt if available
+      // Prepend task-specific prompt (Coderrr.md) if available
       if (this.customPrompt) {
-        enhancedPrompt = `${this.customPrompt}
+        enhancedPrompt = `[TASK GUIDANCE]\n${this.customPrompt}\n\n[USER REQUEST]\n${enhancedPrompt}`;
+      }
 
-${prompt}`;
+      // Prepend skills prompt (Skills.md) if available - comes before task prompt
+      if (this.skillsPrompt) {
+        enhancedPrompt = `[SKILLS]\n${this.skillsPrompt}\n\n${enhancedPrompt}`;
       }
 
       if (this.codebaseContext) {
