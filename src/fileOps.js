@@ -13,6 +13,7 @@ const ui = require('./ui');
 // Protected paths that should never be deleted by Coderrr
 const PROTECTED_PATHS = [
   'Coderrr.md',
+  'Skills.md',
   '.coderrr'
 ];
 
