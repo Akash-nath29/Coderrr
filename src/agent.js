@@ -1,11 +1,7 @@
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const ui = require('./ui');
-const FileOperations = require('./fileOps');
-const CommandExecutor = require('./executor').CommandExecutor;
-const TodoManager = require('./todoManager');
+const GitOperations = require('./gitOps');
+=======
 const CodebaseScanner = require('./codebaseScanner');
+const SearchUtils = require('./searchUtils');
 const GitOperations = require('./gitOps');
 const { sanitizeAxiosError, formatUserError, createSafeError, isNetworkError } = require('./errorHandler');
 const configManager = require('./configManager');

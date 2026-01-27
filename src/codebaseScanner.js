@@ -1,208 +1,39 @@
-const fs = require('fs');
-const path = require('path');
+const FileScanner = require('./fileScanner');
+const CacheManager = require('./cacheManager');
+const SearchEngine = require('./searchEngine');
+const ContentProcessor = require('./contentProcessor');
 
 /**
- * Codebase Scanner - Discovers and reads source files in the project
- * Ignores common non-source directories and files
+ * Codebase Scanner - Facade for codebase scanning and search operations
+ * Orchestrates FileScanner, CacheManager, SearchEngine, and ContentProcessor
+ * Maintains backward compatibility with existing interface
  */
 
 class CodebaseScanner {
   constructor(workingDir = process.cwd()) {
     this.workingDir = workingDir;
-    this.cache = null;
-    this.cacheTimestamp = null;
-    this.cacheDuration = 60000; // 1 minute cache
-    
-    // Directories to ignore
-    this.ignoreDirs = new Set([
-      'node_modules',
-      'env',
-      '.env',
-      'venv',
-      '.venv',
-      '__pycache__',
-      '.git',
-      '.github',
-      'dist',
-      'build',
-      'out',
-      'target',
-      '.next',
-      '.nuxt',
-      'coverage',
-      '.pytest_cache',
-      '.mypy_cache',
-      '.tox',
-      'vendor',
-      'bower_components'
-    ]);
-    
-    // Files to ignore
-    this.ignoreFiles = new Set([
-      '.DS_Store',
-      'Thumbs.db',
-      '.gitignore',
-      '.dockerignore',
-      'package-lock.json',
-      'yarn.lock',
-      'pnpm-lock.yaml',
-      'poetry.lock',
-      'Pipfile.lock',
-      '.env',
-      '.env.local',
-      '.env.example'
-    ]);
-    
-    // Source file extensions to include
-    this.sourceExtensions = new Set([
-      '.js', '.jsx', '.ts', '.tsx',
-      '.py', '.pyi',
-      '.java', '.kt', '.scala',
-      '.go', '.rs',
-      '.c', '.cpp', '.cc', '.h', '.hpp',
-      '.cs', '.vb',
-      '.rb', '.php',
-      '.swift', '.m',
-      '.sh', '.bash',
-      '.sql',
-      '.vue', '.svelte',
-      '.html', '.css', '.scss', '.less',
-      '.json', '.yaml', '.yml', '.toml',
-      '.md', '.txt'
-    ]);
-    
-    // Max file size to read (500KB)
-    this.maxFileSize = 500 * 1024;
+
+    // Initialize component classes
+    this.fileScanner = new FileScanner(workingDir);
+    this.cacheManager = new CacheManager(60000); // 1 minute cache
+    this.searchEngine = new SearchEngine();
+    this.contentProcessor = new ContentProcessor();
   }
 
-  /**
-   * Check if path should be ignored
-   */
-  shouldIgnore(filePath, stats) {
-    const basename = path.basename(filePath);
-    
-    // Ignore specific files
-    if (this.ignoreFiles.has(basename)) {
-      return true;
-    }
-    
-    // Ignore directories
-    if (stats.isDirectory() && this.ignoreDirs.has(basename)) {
-      return true;
-    }
-    
-    // Ignore hidden files/directories (except .github is already ignored)
-    if (basename.startsWith('.') && !basename.match(/\.(js|ts|py|md|json|yaml|yml)$/)) {
-      return true;
-    }
-    
-    return false;
-  }
 
-  /**
-   * Check if file is a source file we want to read
-   */
-  isSourceFile(filePath, stats) {
-    if (!stats.isFile()) {
-      return false;
-    }
-    
-    const ext = path.extname(filePath);
-    return this.sourceExtensions.has(ext);
-  }
-
-  /**
-   * Recursively scan directory for source files
-   */
-  scanDirectory(dirPath, result = { structure: [], files: {} }) {
-    try {
-      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-      
-      for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name);
-        const relativePath = path.relative(this.workingDir, fullPath);
-        const stats = fs.statSync(fullPath);
-        
-        // Skip if should ignore
-        if (this.shouldIgnore(fullPath, stats)) {
-          continue;
-        }
-        
-        if (entry.isDirectory()) {
-          // Add to structure
-          result.structure.push({
-            type: 'directory',
-            path: relativePath,
-            name: entry.name
-          });
-          
-          // Recursively scan
-          this.scanDirectory(fullPath, result);
-        } else if (this.isSourceFile(fullPath, stats)) {
-          // Check file size
-          if (stats.size > this.maxFileSize) {
-            result.structure.push({
-              type: 'file',
-              path: relativePath,
-              name: entry.name,
-              size: stats.size,
-              skipped: true,
-              reason: 'File too large'
-            });
-            continue;
-          }
-          
-          // Add to structure
-          result.structure.push({
-            type: 'file',
-            path: relativePath,
-            name: entry.name,
-            size: stats.size
-          });
-          
-          // Read file content
-          try {
-            const content = fs.readFileSync(fullPath, 'utf8');
-            result.files[relativePath] = {
-              path: relativePath,
-              name: entry.name,
-              size: stats.size,
-              extension: path.extname(entry.name),
-              content: content,
-              lines: content.split('\n').length
-            };
-          } catch (readError) {
-            // Skip files we can't read
-            result.files[relativePath] = {
-              path: relativePath,
-              name: entry.name,
-              error: 'Could not read file'
-            };
-          }
-        }
-      }
-    } catch (error) {
-      // Skip directories we can't access
-      console.error(`Error scanning ${dirPath}:`, error.message);
-    }
-    
-    return result;
-  }
 
   /**
    * Get project structure and file contents
    */
   scan(forceRefresh = false) {
     // Return cached result if available and fresh
-    const now = Date.now();
-    if (!forceRefresh && this.cache && this.cacheTimestamp && 
-        (now - this.cacheTimestamp) < this.cacheDuration) {
-      return this.cache;
+    if (!forceRefresh && this.cacheManager.isCacheValid()) {
+      return this.cacheManager.get();
     }
-    
+
     // Perform scan
-    const result = this.scanDirectory(this.workingDir);
-    
+    const result = this.fileScanner.scanDirectory(this.workingDir);
+
     // Add summary
     result.summary = {
       totalFiles: Object.keys(result.files).length,
@@ -211,11 +42,10 @@ class CodebaseScanner {
       scannedAt: new Date().toISOString(),
       workingDir: this.workingDir
     };
-    
+
     // Cache the result
-    this.cache = result;
-    this.cacheTimestamp = now;
-    
+    this.cacheManager.set(result);
+
     return result;
   }
 
@@ -273,31 +103,120 @@ class CodebaseScanner {
    */
   findFiles(searchTerm) {
     const scanResult = this.scan();
-    const results = [];
-    
-    const searchLower = searchTerm.toLowerCase();
-    
-    for (const [filePath, fileData] of Object.entries(scanResult.files)) {
-      if (fileData.name.toLowerCase().includes(searchLower) ||
-          filePath.toLowerCase().includes(searchLower)) {
-        results.push({
-          path: filePath,
-          name: fileData.name,
-          size: fileData.size,
-          extension: fileData.extension
-        });
+    return this.searchEngine.findFiles(scanResult.files, searchTerm);
+  }
+
+  /**
+   * Calculate fuzzy match score between two strings
+   */
+  fuzzyMatchScore(searchTerm, target) {
+    const search = searchTerm.toLowerCase();
+    const targetLower = target.toLowerCase();
+
+    // Exact match gets highest score
+    if (targetLower === search) return 100;
+
+    // Starts with search term
+    if (targetLower.startsWith(search)) return 90;
+
+    // Contains search term
+    if (targetLower.includes(search)) return 80;
+
+    // Fuzzy matching - check for character sequence
+    let score = 0;
+    let searchIndex = 0;
+
+    for (let i = 0; i < targetLower.length && searchIndex < search.length; i++) {
+      if (targetLower[i] === search[searchIndex]) {
+        score += 10;
+        searchIndex++;
       }
     }
-    
-    return results;
+
+    // Bonus for consecutive matches
+    if (searchIndex === search.length) {
+      score += 20;
+    }
+
+    return Math.min(score, 70); // Cap at 70 for non-exact matches
+  }
+
+  /**
+   * Get semantic keywords for a search term
+   */
+  getSemanticKeywords(searchTerm) {
+    const term = searchTerm.toLowerCase();
+    const keywords = [term]; // Always include the original term
+
+    // Add semantic mappings
+    for (const [concept, terms] of Object.entries(this.semanticMappings)) {
+      if (terms.some(t => t.includes(term) || term.includes(t))) {
+        keywords.push(...terms);
+        keywords.push(concept);
+      }
+    }
+
+    // Add common variations
+    if (term.endsWith('s')) {
+      keywords.push(term.slice(0, -1)); // Remove plural
+    } else {
+      keywords.push(term + 's'); // Add plural
+    }
+
+    return [...new Set(keywords)]; // Remove duplicates
+  }
+
+  /**
+   * Perform semantic search across files and content
+   */
+  semanticSearch(searchTerm, options = {}) {
+    const scanResult = this.scan();
+    return this.searchEngine.semanticSearch(scanResult.files, searchTerm, options);
+  }
+
+  /**
+   * Chunk large file content for processing
+   */
+  chunkContent(content, chunkSize) {
+    return this.contentProcessor.chunkContent(content, chunkSize);
+  }
+
+  /**
+   * Search within file chunks for large files
+   */
+  async searchInChunks(filePath, searchTerm, options = {}) {
+    const scanResult = this.scan();
+    const semanticKeywords = this.searchEngine.getSemanticKeywords(searchTerm);
+    return this.contentProcessor.searchInChunks(
+      this.workingDir,
+      filePath,
+      searchTerm,
+      semanticKeywords,
+      this.fileScanner.maxFileSize
+    );
+  }
+
+  /**
+   * Advanced search with multiple modes
+   */
+  advancedSearch(query, mode = 'auto', options = {}) {
+    const scanResult = this.scan();
+    return this.searchEngine.advancedSearch(scanResult.files, query, mode, options);
+  }
+
+  /**
+   * Regex-based search
+   */
+  regexSearch(pattern, options = {}) {
+    const scanResult = this.scan();
+    return this.searchEngine.regexSearch(scanResult.files, pattern, options);
   }
 
   /**
    * Clear cache
    */
   clearCache() {
-    this.cache = null;
-    this.cacheTimestamp = null;
+    this.cacheManager.clear();
   }
 }
 

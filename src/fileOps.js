@@ -1,4 +1,4 @@
-const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const ui = require('./ui');
 
@@ -7,7 +7,7 @@ const ui = require('./ui');
  *
  * Provides safe file manipulation operations with automatic directory creation,
  * path resolution, and comprehensive error handling. All operations are
- * synchronous to ensure atomicity and predictable behavior.
+ * asynchronous to ensure non-blocking behavior and proper error handling.
  */
 
 // Protected paths that should never be deleted by Coderrr
@@ -58,11 +58,27 @@ class FileOperations {
   }
 
   /**
+   * Check if a file or directory exists
+   */
+  async fileExists(filePath) {
+    try {
+      await fsPromises.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Ensure directory exists
    */
-  ensureDir(dirPath) {
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
+  async ensureDir(dirPath) {
+    try {
+      await fsPromises.mkdir(dirPath, { recursive: true });
+    } catch (error) {
+      if (error.code !== 'EEXIST') {
+        throw error;
+      }
     }
   }
 
@@ -80,15 +96,15 @@ class FileOperations {
       const dir = path.dirname(absolutePath);
 
       // Check if file already exists
-      if (fs.existsSync(absolutePath)) {
+      if (await this.fileExists(absolutePath)) {
         throw new Error(`File already exists: ${filePath}`);
       }
 
       // Ensure directory exists
-      this.ensureDir(dir);
+      await this.ensureDir(dir);
 
       // Write file
-      fs.writeFileSync(absolutePath, content, 'utf8');
+      await fsPromises.writeFile(absolutePath, content, 'utf8');
       ui.displayFileOp('create_file', filePath, 'success');
 
       // Return with diff data (new file = empty old content)
@@ -112,7 +128,7 @@ class FileOperations {
       const absolutePath = this.resolvePath(filePath);
 
       // Check if file exists
-      if (!fs.existsSync(absolutePath)) {
+      if (!(await this.fileExists(absolutePath))) {
         throw new Error(`File not found: ${filePath}`);
       }
 
@@ -120,7 +136,7 @@ class FileOperations {
       const oldContent = fs.readFileSync(absolutePath, 'utf8');
 
       // Write file
-      fs.writeFileSync(absolutePath, content, 'utf8');
+      await fsPromises.writeFile(absolutePath, content, 'utf8');
       ui.displayFileOp('update_file', filePath, 'success');
 
       return {
@@ -143,12 +159,12 @@ class FileOperations {
       const absolutePath = this.resolvePath(filePath);
 
       // Check if file exists
-      if (!fs.existsSync(absolutePath)) {
+      if (!(await this.fileExists(absolutePath))) {
         throw new Error(`File not found: ${filePath}`);
       }
 
       // Read current content
-      const originalContent = fs.readFileSync(absolutePath, 'utf8');
+      let content = await fsPromises.readFile(absolutePath, 'utf8');
 
       // Replace old content with new content
       if (!originalContent.includes(oldContent)) {
@@ -158,7 +174,7 @@ class FileOperations {
       const patchedContent = originalContent.replace(oldContent, newContent);
 
       // Write back
-      fs.writeFileSync(absolutePath, patchedContent, 'utf8');
+      await fsPromises.writeFile(absolutePath, content, 'utf8');
       ui.displayFileOp('patch_file', filePath, 'success');
 
       return {
@@ -187,7 +203,7 @@ class FileOperations {
       }
 
       // Check if file exists
-      if (!fs.existsSync(absolutePath)) {
+      if (!(await this.fileExists(absolutePath))) {
         throw new Error(`File not found: ${filePath}`);
       }
 
@@ -195,7 +211,7 @@ class FileOperations {
       const oldContent = fs.readFileSync(absolutePath, 'utf8');
 
       // Delete file
-      fs.unlinkSync(absolutePath);
+      await fsPromises.unlink(absolutePath);
       ui.displayFileOp('delete_file', filePath, 'success');
 
       return {
@@ -218,12 +234,12 @@ class FileOperations {
       const absolutePath = this.resolvePath(filePath);
 
       // Check if file exists
-      if (!fs.existsSync(absolutePath)) {
+      if (!(await this.fileExists(absolutePath))) {
         throw new Error(`File not found: ${filePath}`);
       }
 
       // Read file
-      const content = fs.readFileSync(absolutePath, 'utf8');
+      const content = await fsPromises.readFile(absolutePath, 'utf8');
       ui.displayFileOp('read_file', filePath, 'success');
       return { success: true, content, path: absolutePath };
     } catch (error) {
@@ -244,12 +260,12 @@ class FileOperations {
       const absolutePath = this.resolvePath(dirPath);
 
       // Check if directory already exists
-      if (fs.existsSync(absolutePath)) {
+      if (await this.fileExists(absolutePath)) {
         throw new Error(`Directory already exists: ${dirPath}`);
       }
 
       // Create directory (recursive)
-      fs.mkdirSync(absolutePath, { recursive: true });
+      await fsPromises.mkdir(absolutePath, { recursive: true });
       ui.displayFileOp('create_dir', dirPath, 'success');
       return { success: true, path: absolutePath };
     } catch (error) {
@@ -276,23 +292,24 @@ class FileOperations {
       }
 
       // Check if directory exists
-      if (!fs.existsSync(absolutePath)) {
+      if (!(await this.fileExists(absolutePath))) {
         throw new Error(`Directory not found: ${dirPath}`);
       }
 
       // Check if it's actually a directory
-      if (!fs.statSync(absolutePath).isDirectory()) {
+      const stats = await fsPromises.stat(absolutePath);
+      if (!stats.isDirectory()) {
         throw new Error(`Path is not a directory: ${dirPath}`);
       }
 
       // Check if directory is empty
-      const contents = fs.readdirSync(absolutePath);
+      const contents = await fsPromises.readdir(absolutePath);
       if (contents.length > 0) {
         throw new Error(`Directory not empty: ${dirPath}`);
       }
 
       // Delete directory
-      fs.rmdirSync(absolutePath);
+      await fsPromises.rmdir(absolutePath);
       ui.displayFileOp('delete_dir', dirPath, 'success');
       return { success: true, path: absolutePath };
     } catch (error) {
@@ -313,17 +330,18 @@ class FileOperations {
       const absolutePath = this.resolvePath(dirPath);
 
       // Check if directory exists
-      if (!fs.existsSync(absolutePath)) {
+      if (!(await this.fileExists(absolutePath))) {
         throw new Error(`Directory not found: ${dirPath}`);
       }
 
       // Check if it's actually a directory
-      if (!fs.statSync(absolutePath).isDirectory()) {
+      const stats = await fsPromises.stat(absolutePath);
+      if (!stats.isDirectory()) {
         throw new Error(`Path is not a directory: ${dirPath}`);
       }
 
       // List contents
-      const contents = fs.readdirSync(absolutePath);
+      const contents = await fsPromises.readdir(absolutePath);
       ui.displayFileOp('list_dir', dirPath, 'success');
       return { success: true, path: absolutePath, contents };
     } catch (error) {
@@ -346,26 +364,27 @@ class FileOperations {
       const newAbsolutePath = this.resolvePath(newDirPath);
 
       // Check if source directory exists
-      if (!fs.existsSync(oldAbsolutePath)) {
+      if (!(await this.fileExists(oldAbsolutePath))) {
         throw new Error(`Directory not found: ${oldDirPath}`);
       }
 
       // Check if it's actually a directory
-      if (!fs.statSync(oldAbsolutePath).isDirectory()) {
+      const stats = await fsPromises.stat(oldAbsolutePath);
+      if (!stats.isDirectory()) {
         throw new Error(`Source path is not a directory: ${oldDirPath}`);
       }
 
       // Check if destination already exists
-      if (fs.existsSync(newAbsolutePath)) {
+      if (await this.fileExists(newAbsolutePath)) {
         throw new Error(`Destination already exists: ${newDirPath}`);
       }
 
       // Ensure parent directory of destination exists
       const newDirParent = path.dirname(newAbsolutePath);
-      this.ensureDir(newDirParent);
+      await this.ensureDir(newDirParent);
 
       // Rename/move directory
-      fs.renameSync(oldAbsolutePath, newAbsolutePath);
+      await fsPromises.rename(oldAbsolutePath, newAbsolutePath);
       ui.displayFileOp('rename_dir', `${oldDirPath} -> ${newDirPath}`, 'success');
       return { success: true, oldPath: oldAbsolutePath, newPath: newAbsolutePath };
     } catch (error) {
