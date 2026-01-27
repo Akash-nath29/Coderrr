@@ -42,7 +42,8 @@ class Agent {
     this.scanOnFirstRequest = options.scanOnFirstRequest !== false; // Default to true
     this.gitEnabled = options.gitEnabled || false; // Git auto-commit feature (opt-in)
     this.maxHistoryLength = options.maxHistoryLength || 10; // Max conversation turns to keep
-    this.customPrompt = null; // Custom system prompt from Coderrr.md
+    this.skillsPrompt = null; // Skills prompt from Skills.md (persistent skills)
+    this.customPrompt = null; // Custom system prompt from Coderrr.md (task-specific)
 
     // Initialize project-local storage and load cross-session memory
     configManager.initializeProjectStorage(this.workingDir);
@@ -81,14 +82,31 @@ class Agent {
   }
 
   /**
+   * Load skills prompt from Skills.md in project directory
+   * Skills are persistent guidance that applies to all tasks (e.g., design guidelines)
+   */
+  loadSkillsPrompt() {
+    try {
+      const skillsPath = path.join(this.workingDir, 'Skills.md');
+      if (fs.existsSync(skillsPath)) {
+        this.skillsPrompt = fs.readFileSync(skillsPath, 'utf8').trim();
+        ui.info('Loaded skills from Skills.md');
+      }
+    } catch (error) {
+      ui.warning(`Could not load Skills.md: ${error.message}`);
+    }
+  }
+
+  /**
    * Load custom system prompt from Coderrr.md in project directory
+   * This is task-specific guidance that may change per task
    */
   loadCustomPrompt() {
     try {
       const customPromptPath = path.join(this.workingDir, 'Coderrr.md');
       if (fs.existsSync(customPromptPath)) {
         this.customPrompt = fs.readFileSync(customPromptPath, 'utf8').trim();
-        ui.info('Loaded custom system prompt from Coderrr.md');
+        ui.info('Loaded task prompt from Coderrr.md');
       }
     } catch (error) {
       ui.warning(`Could not load Coderrr.md: ${error.message}`);
@@ -120,6 +138,11 @@ class Agent {
    */
   async chat(prompt, options = {}) {
     try {
+      // Load skills prompt on first request if not already loaded
+      if (this.skillsPrompt === null) {
+        this.loadSkillsPrompt();
+      }
+
       // Load custom prompt on first request if not already loaded
       if (this.customPrompt === null) {
         this.loadCustomPrompt();
@@ -140,14 +163,21 @@ class Agent {
         }
       }
 
-      // Enhance prompt with custom prompt and codebase context
+      // Build enhanced prompt with priority:
+      // 1. System Prompt (embedded in backend)
+      // 2. Skills.md (persistent skills)
+      // 3. Coderrr.md (task-specific guidance)
+      // 4. User prompt
       let enhancedPrompt = prompt;
 
-      // Prepend custom prompt if available
+      // Prepend task-specific prompt (Coderrr.md) if available
       if (this.customPrompt) {
-        enhancedPrompt = `${this.customPrompt}
+        enhancedPrompt = `[TASK GUIDANCE]\n${this.customPrompt}\n\n[USER REQUEST]\n${enhancedPrompt}`;
+      }
 
-${prompt}`;
+      // Prepend skills prompt (Skills.md) if available - comes before task prompt
+      if (this.skillsPrompt) {
+        enhancedPrompt = `[SKILLS]\n${this.skillsPrompt}\n\n${enhancedPrompt}`;
       }
 
       if (this.codebaseContext) {
@@ -368,14 +398,14 @@ For command execution on ${osType}, use appropriate command separators (${osType
               // Check if this error is retryable (can be fixed by AI)
               if (!this.isRetryableError(errorMsg)) {
                 ui.error(`Non-retryable error: ${errorMsg}`);
-                ui.warning('⚠️  This type of error cannot be auto-fixed (file/permission/config issue)');
+                ui.warning('This type of error cannot be auto-fixed (file/permission/config issue)');
                 break; // Don't retry, let the outer loop ask user what to do
               }
 
               // Command failed - attempt self-healing if enabled and error is retryable
               if (this.autoRetry && retryCount < this.maxRetries) {
                 ui.warning(`Command failed (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
-                ui.info('🔧 Analyzing error and generating fix...');
+                ui.info('Analyzing error and generating fix...');
 
                 const fixedStep = await this.selfHeal(step, errorMsg, retryCount);
 
@@ -403,9 +433,14 @@ For command execution on ${osType}, use appropriate command separators (${osType
             }
           } else {
             // File operation
-            await this.fileOps.execute(step);
+            const result = await this.fileOps.execute(step);
             stepResult = `${step.action}: "${step.path}"`;
             stepSuccess = true;
+
+            // Display diff if available (for create, update, patch, delete)
+            if (result && (result.oldContent !== undefined || result.newContent !== undefined)) {
+              ui.displayDiff(step.path, result.oldContent, result.newContent);
+            }
           }
 
           if (stepSuccess) {
@@ -418,7 +453,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
           // Check if this error is retryable (can be fixed by AI)
           if (!this.isRetryableError(errorMsg)) {
             ui.error(`Non-retryable error: ${errorMsg}`);
-            ui.warning('⚠️  This type of error cannot be auto-fixed (file/permission/config issue)');
+            ui.warning('This type of error cannot be auto-fixed (file/permission/config issue)');
             break; // Don't retry, let the outer loop ask user what to do
           }
 
@@ -428,7 +463,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
 
           if (this.autoRetry && retryCount < this.maxRetries) {
             ui.warning(`Step failed: ${errorMsg} (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
-            ui.info('🔧 Analyzing error and generating fix...');
+            ui.info('Analyzing error and generating fix...');
 
             const fixedStep = await this.selfHeal(step, errorMsg, retryCount);
 
@@ -563,7 +598,7 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
   ]
 }`;
 
-      ui.info('🔧 Requesting fix from AI...');
+      ui.info('Requesting fix from AI...');
       const response = await this.chat(healingPrompt);
 
       // Handle both object response (from new backend) and string response
@@ -572,7 +607,7 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
         : this.parseJsonResponse(response);
 
       if (parsed.explanation) {
-        ui.info(`💡 Fix: ${parsed.explanation}`);
+        ui.info(`Fix: ${parsed.explanation}`);
       }
 
       // Extract the fixed step from the plan array
@@ -659,7 +694,7 @@ Please provide ONLY a JSON object with the fixed step. Use the standard plan for
     });
 
     if (result.success) {
-      ui.success('All tests passed! ✨');
+      ui.success('All tests passed!');
     } else {
       ui.error('Some tests failed');
     }

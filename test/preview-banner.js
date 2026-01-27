@@ -36,12 +36,12 @@ const banner = `
 
 
 
-{yellow-fg}💡 Quick Tips:{/yellow-fg}
-  {grey-fg}• Type your coding request and press Enter{/grey-fg}
-  {grey-fg}• Use /quit or /exit to leave{/grey-fg}
-  {grey-fg}• Press Tab to focus input, Ctrl+C to exit{/grey-fg}
+{cyan-fg}▸ Quick Tips:{/cyan-fg}
+  {grey-fg}│  Type your coding request and press Enter{/grey-fg}
+  {grey-fg}│  Use /quit or /exit to leave{/grey-fg}
+  {grey-fg}└─ Press Tab to focus input, Ctrl+C to exit{/grey-fg}
 
-{blue-fg}🔗 Backend:{/blue-fg} {white-fg}${BACKEND}{/white-fg}
+{cyan-fg}▸ Backend:{/cyan-fg} {white-fg}${BACKEND}{/white-fg}
 {magenta-fg}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{/magenta-fg}
 
 {bold}{cyan-fg}Coderrr{/cyan-fg}{/bold} {grey-fg}10:30 PM{/grey-fg}:
