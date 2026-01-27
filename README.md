@@ -85,6 +85,7 @@ npm install -g coderrr-cli
 cd C:\Coder\Coderrr
 coderrr
 ### Quick Start (Zero Config!)
+```
 
 ```bash
 npm install -g coderrr-cli
@@ -255,44 +256,44 @@ The Coderrr repository follows a clean and modular structure to improve
 maintainability, scalability, and contributor onboarding.
 
 ```text
-Coderrr/
-├── bin/            # CLI entry points (modern CLI & legacy TUI)
-├── src/            # Core agent logic, file operations, execution & UI
-├── backend/        # FastAPI backend for AI processing
-├── docs/           # Detailed documentation (architecture, API, guides)
-├── examples/       # Example usage and demo projects
-├── test/           # General test files
-├── tests/unit/     # Unit tests for core components
-├── .github/        # GitHub Actions, CI/CD workflows, templates
-├── package.json    # Node.js dependencies and CLI metadata
-├── README.md       # Project overview and usage guide
-└── LICENSE         # MIT license
-
+📁 Coderrr/
+├── 📁 bin/            # CLI entry points (modern CLI & legacy TUI)
+├── 📁 src/            # Core agent logic, file operations, execution & UI
+├── 📁 backend/        # FastAPI backend for AI processing
+├── 📁 docs/           # Detailed documentation (architecture, API, guides)
+├── 📁 examples/       # Example usage and demo projects
+├── 📁 test/           # General test files
+├── 📁 tests/unit/     # Unit tests for core components
+├── 📁 .github/        # GitHub Actions, CI/CD workflows, templates
+├── 📄 package.json    # Node.js dependencies and CLI metadata
+├── 📄 README.md       # Project overview and usage guide
+└── 📄 LICENSE         # MIT license
+```
 ---
 
 ## Architecture
 
-```
-Coderrr/
-├── bin/
-│   ├── coderrr.js           # Modern CLI (commander-based)
-│   └── coderrr-cli.js       # Legacy TUI (blessed-based)
-├── src/
-│   ├── agent.js             # Core agent logic & orchestration
-│   ├── fileOps.js           # File operations handler
-│   ├── executor.js          # Command executor with permissions
-│   ├── todoManager.js       # TODO tracking & visualization
-│   ├── codebaseScanner.js   # Project structure scanner
-│   └── ui.js                # UI utilities & components
-├── backend/
-│   ├── main.py              # FastAPI backend server
-│   └── requirements.txt     # Python dependencies
-├── test/                    # Test suite
-├── docs/                    # Documentation
-├── examples/                # Usage examples
-├── .github/                 # CI/CD workflows
-├── package.json
-└── .env                     # Environment configuration
+```bash
+📁 Coderrr/
+├── 📁 bin/
+│   ├── 📄 coderrr.js           # Modern CLI (commander-based)
+│   └── 📄 coderrr-cli.js       # Legacy TUI (blessed-based)
+├── 📁 src/
+│   ├── 📄 agent.js             # Core agent logic & orchestration
+│   ├── 📄 fileOps.js           # File operations handler
+│   ├── 📄 executor.js          # Command executor with permissions
+│   ├── 📄 todoManager.js       # TODO tracking & visualization
+│   ├── 📄 codebaseScanner.js   # Project structure scanner
+│   └── 📄 ui.js                # UI utilities & components
+├── 📁 backend/
+│   ├── 📄 main.py              # FastAPI backend server
+│   └── 📄 requirements.txt     # Python dependencies
+├── 📁 test/                    # Test suite
+├── 📁 docs/                    # Documentation
+├── 📁 examples/                # Usage examples
+├── 📁 .github/                 # CI/CD workflows
+├── 📄 package.json
+└── 📄 .env                     # Environment configuration
 ```
 
 ### Backend (FastAPI)
