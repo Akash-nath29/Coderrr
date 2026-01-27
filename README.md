@@ -352,7 +352,17 @@ This section explains how to run Coderrr locally from source for development or 
 git clone https://github.com/Akash-nath29/Coderrr.git
 cd Coderrr
 ```
-### 2. Backend Setup (FastAPI)
+### 2. Backend Setup
+You can run the backend using Docker (recommended) or set it up manually.
+
+#### Option A: Docker (Recommended)
+
+```bash
+docker compose up --build
+```
+The backend will be started at `http://localhost:5000` with hot-reloading enabled.
+
+#### Option B: Manual Setup (FastAPI)
 
 ```bash
 cd backend
