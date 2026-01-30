@@ -15,6 +15,14 @@ const Agent = require('../src/agent');
 const configManager = require('../src/configManager');
 const { getProviderChoices, getModelChoices, getProvider, validateApiKey } = require('../src/providers');
 const { tryExtractJSON } = require('../src/utils');
+const { runDiagnostics } = require('../src/doctorUI');
+program
+  .command('doctor')
+  .description('Check your system for Coderrr compatibility')
+  .action(async () => {
+    // This calls our new UI module to run the health checks
+    await runDiagnostics(process.env.CODERRR_BACKEND);
+  });
 
 // Optional: Load .env from user's home directory (for advanced users who want custom backend)
 const homeConfigPath = path.join(os.homedir(), '.coderrr', '.env');
