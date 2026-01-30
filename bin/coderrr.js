@@ -15,15 +15,10 @@ const Agent = require('../src/agent');
 const configManager = require('../src/configManager');
 const { getProviderChoices, getModelChoices, getProvider, validateApiKey } = require('../src/providers');
 const { tryExtractJSON } = require('../src/utils');
-
+const { displayRecipeList } = require('../src/recipeUI');
+const recipeManager = require('../src/recipeManager');
 const { displayInsights } = require('../src/insightsUI');
 
-program
-  .command('insights')
-  .description('Display local usage statistics and task history')
-  .action(() => {
-    displayInsights();
-  });
 // Optional: Load .env from user's home directory (for advanced users who want custom backend)
 const homeConfigPath = path.join(os.homedir(), '.coderrr', '.env');
 if (fs.existsSync(homeConfigPath)) {
@@ -40,6 +35,33 @@ program
   .name('coderrr')
   .description('AI Coding Agent CLI - Your personal coding assistant')
   .version('1.0.0');
+
+// Recipe command - manage and run custom coding recipes
+program
+  .command('recipe [name]')
+  .description('Manage and run custom coding recipes')
+  .option('-l, --list', 'List all available recipes')
+  .action((name, options) => {
+    if (options.list || !name) {
+      displayRecipeList();
+    } else {
+      const recipe = recipeManager.getRecipe(name);
+      if (recipe) {
+        console.log(`Running recipe: ${recipe.name}...`);
+        // Logic to pass tasks to the agent would go here
+      } else {
+        console.log(`Recipe "${name}" not found.`);
+      }
+    }
+  });
+
+// Insights command - display local usage statistics
+program
+  .command('insights')
+  .description('Display local usage statistics and task history')
+  .action(() => {
+    displayInsights();
+  });
 
 // Config command - configure provider and API key
 program
