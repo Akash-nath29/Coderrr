@@ -1,0 +1,21 @@
+
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: coderrr-backend
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5000
+    # Load environment variables from .env file if it exists
+    env_file:
+      - .env
+    # Override command to enable hot reloading for development
+    command: uvicorn main:app --host 0.0.0.0 --port 5000 --reload
+    restart: unless-stopped
