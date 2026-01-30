@@ -15,6 +15,14 @@ const Agent = require('../src/agent');
 const configManager = require('../src/configManager');
 const { getProviderChoices, getModelChoices, getProvider, validateApiKey } = require('../src/providers');
 const { tryExtractJSON } = require('../src/utils');
+const { runDiagnostics } = require('../src/doctorUI');
+program
+  .command('doctor')
+  .description('Check your system for Coderrr compatibility')
+  .action(async () => {
+    // This calls our new UI module to run the health checks
+    await runDiagnostics(process.env.CODERRR_BACKEND);
+  });
 const { displayRecipeList } = require('../src/recipeUI');
 const recipeManager = require('../src/recipeManager');
 const { displayInsights } = require('../src/insightsUI');
