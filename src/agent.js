@@ -55,6 +55,49 @@ class Agent {
 
     // Load user provider configuration
     this.providerConfig = configManager.getConfig();
+
+    // Track running processes spawned in separate terminals
+    this.runningProcesses = [];
+
+    // Register cleanup handler for when Coderrr exits
+    this.registerExitCleanup();
+  }
+
+  /**
+   * Register cleanup handler to terminate spawned processes on exit
+   */
+  registerExitCleanup() {
+    const cleanup = async () => {
+      if (this.runningProcesses.length > 0) {
+        ui.info(`Cleaning up ${this.runningProcesses.length} running process(es)...`);
+        for (const proc of this.runningProcesses) {
+          if (proc && typeof proc.stop === 'function') {
+            try {
+              const isRunning = await proc.isRunning();
+              if (isRunning) {
+                await proc.stop();
+              }
+              if (proc.stopMonitoring) {
+                proc.stopMonitoring();
+              }
+            } catch (e) {
+              // Ignore cleanup errors
+            }
+          }
+        }
+      }
+    };
+
+    // Handle various exit signals
+    process.on('exit', cleanup);
+    process.on('SIGINT', async () => {
+      await cleanup();
+      process.exit(0);
+    });
+    process.on('SIGTERM', async () => {
+      await cleanup();
+      process.exit(0);
+    });
   }
 
   /**
@@ -372,6 +415,9 @@ For command execution on ${osType}, use appropriate command separators (${osType
 
     ui.section('Executing Plan');
 
+    // Track completed steps for context in self-healing
+    const completedSteps = [];
+
     // Execute each step
     for (let i = 0; i < plan.length; i++) {
       const step = plan[i];
@@ -386,18 +432,33 @@ For command execution on ${osType}, use appropriate command separators (${osType
       while (!stepSuccess && retryCount <= this.maxRetries) {
         try {
           if (step.action === 'run_command') {
-            // Execute command with permission
-            const result = await this.executor.execute(step.command, {
+            // Execute command in a separate terminal window
+            // This prevents long-running or infinite loop commands from blocking Coderrr
+            const result = await this.executor.executeInSeparateTerminal(step.command, {
               requirePermission: true,
-              cwd: this.workingDir
+              cwd: this.workingDir,
+              monitorOutput: true
             });
 
-            stepResult = result.success
-              ? `Executed command: "${step.command}"`
-              : `Failed command: "${step.command}". Error: ${result.error || result.output}`;
+            if (result.cancelled) {
+              ui.warning('Command cancelled by user');
+              stepSuccess = true; // Consider cancelled as completed
+              stepResult = `Cancelled command: "${step.command}"`;
+            } else if (result.success) {
+              stepResult = `Started command in separate terminal: "${step.command}"`;
+              stepSuccess = true;
 
-            if (!result.success && !result.cancelled) {
-              const errorMsg = result.error || result.output || 'Unknown error';
+              // Store the process handle for potential cleanup later
+              if (!this.runningProcesses) {
+                this.runningProcesses = [];
+              }
+              this.runningProcesses.push(result);
+
+              ui.info('Command is running in separate terminal. Coderrr remains responsive.');
+              ui.info('The terminal window will show the command output.');
+            } else {
+              const errorMsg = result.error || 'Unknown error';
+              stepResult = `Failed to start command: "${step.command}". Error: ${errorMsg}`;
 
               // Check if this error is retryable (can be fixed by AI)
               if (!this.isRetryableError(errorMsg)) {
@@ -411,7 +472,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
                 ui.warning(`Command failed (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
                 ui.info('Analyzing error and generating fix...');
 
-                const fixedStep = await this.selfHeal(step, errorMsg, retryCount);
+                const fixedStep = await this.selfHeal(step, errorMsg, retryCount, completedSteps);
 
                 if (fixedStep && this.validateFixedStep(fixedStep)) {
                   Object.assign(step, fixedStep);
@@ -425,15 +486,6 @@ For command execution on ${osType}, use appropriate command separators (${osType
                 ui.error(`Command failed${this.autoRetry ? ` after ${this.maxRetries + 1} attempts` : ''}, stopping execution`);
                 break;
               }
-            } else {
-              stepSuccess = true;
-            }
-
-            if (result.cancelled) {
-              ui.warning('Command cancelled by user');
-              stepSuccess = true; // Consider cancelled as completed
-            } else {
-              stepSuccess = true;
             }
           } else {
             // File operation
@@ -450,6 +502,8 @@ For command execution on ${osType}, use appropriate command separators (${osType
           if (stepSuccess) {
             this.todoManager.complete(i);
             executionLog.push(`✓ Step ${i + 1}: ${stepResult}`);
+            // Track completed step for context in case later steps fail
+            completedSteps.push({ ...step, result: stepResult });
           }
         } catch (error) {
           const errorMsg = error.message || 'Unknown error';
@@ -469,7 +523,7 @@ For command execution on ${osType}, use appropriate command separators (${osType
             ui.warning(`Step failed: ${errorMsg} (attempt ${retryCount + 1}/${this.maxRetries + 1})`);
             ui.info('Analyzing error and generating fix...');
 
-            const fixedStep = await this.selfHeal(step, errorMsg, retryCount);
+            const fixedStep = await this.selfHeal(step, errorMsg, retryCount, completedSteps);
 
             if (fixedStep && this.validateFixedStep(fixedStep)) {
               Object.assign(step, fixedStep);
@@ -566,9 +620,23 @@ For command execution on ${osType}, use appropriate command separators (${osType
 
   /**
    * Self-healing: Ask AI to fix a failed step
+   * @param {Object} failedStep - The step that failed
+   * @param {string} errorMessage - The error message
+   * @param {number} attemptNumber - Current attempt number
+   * @param {Array} completedSteps - Steps already successfully completed in this plan
    */
-  async selfHeal(failedStep, errorMessage, attemptNumber) {
+  async selfHeal(failedStep, errorMessage, attemptNumber, completedSteps = []) {
     try {
+      // Build context about what has already been completed
+      let completedContext = '';
+      if (completedSteps.length > 0) {
+        completedContext = `\nALREADY COMPLETED STEPS (do NOT repeat these or try to access deleted files):
+${completedSteps.map((s, i) => `  ${i + 1}. ${s.action}: ${s.path || s.command || ''} - ${s.summary}`).join('\n')}
+
+IMPORTANT: The above actions have ALREADY been executed. Files that were deleted NO LONGER EXIST.
+`;
+      }
+
       // Use the same format as normal requests so it passes backend validation
       const healingPrompt = `The following step failed with an error. Please analyze the error and provide a fixed version of the step.
 
@@ -580,11 +648,16 @@ Summary: ${failedStep.summary}
 
 ERROR:
 ${errorMessage}
-
+${completedContext}
 CONTEXT:
 - Working directory: ${this.workingDir}
 - Attempt number: ${attemptNumber + 1}
 - Available files: ${this.codebaseContext ? this.codebaseContext.files.map(f => f.path).slice(0, 10).join(', ') : 'Unknown'}
+
+IMPORTANT REMINDERS:
+- NEVER delete Coderrr.md, Skills.md, or .coderrr directory (these are protected)
+- If a file was already deleted in a previous step, it no longer exists
+- For patch_file, you MUST use the EXACT content from the file, not placeholders
 
 Please provide ONLY a JSON object with the fixed step. Use the standard plan format:
 {
