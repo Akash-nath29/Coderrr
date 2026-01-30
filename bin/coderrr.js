@@ -15,6 +15,24 @@ const Agent = require('../src/agent');
 const configManager = require('../src/configManager');
 const { getProviderChoices, getModelChoices, getProvider, validateApiKey } = require('../src/providers');
 const { tryExtractJSON } = require('../src/utils');
+const { displayRecipeList } = require('../src/recipeUI');
+const recipeManager = require('../src/recipeManager');
+program
+  .command('recipe [name]')
+  .description('Manage and run custom coding recipes')
+  .option('-l, --list', 'List all available recipes')
+  .action((name, options) => {
+    if (options.list || !name) {
+      displayRecipeList();
+    } else {
+      const recipe = recipeManager.getRecipe(name);
+      if (recipe) {
+        console.log(`Running recipe: ${recipe.name}...`);
+        // Logic to pass tasks to the agent would go here
+      } else {
+        console.log(`Recipe "${name}" not found.`);
+      }
+    }
 
 const { displayInsights } = require('../src/insightsUI');
 
