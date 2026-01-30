@@ -137,6 +137,12 @@ class FileOperations {
 
   /**
    * Patch a file (partial update)
+   * 
+   * This method supports flexible matching to handle differences between
+   * what the AI provides and what's actually in the file:
+   * - Line ending normalization (CRLF vs LF)
+   * - Leading/trailing whitespace tolerance
+   * - Fuzzy line-by-line matching as fallback
    */
   async patchFile(filePath, oldContent, newContent) {
     try {
@@ -150,12 +156,79 @@ class FileOperations {
       // Read current content
       const originalContent = fs.readFileSync(absolutePath, 'utf8');
 
-      // Replace old content with new content
-      if (!originalContent.includes(oldContent)) {
-        throw new Error(`Pattern not found in file: ${filePath}`);
+      // Try multiple matching strategies
+      let patchedContent = null;
+
+      // Strategy 1: Exact match
+      if (originalContent.includes(oldContent)) {
+        patchedContent = originalContent.replace(oldContent, newContent);
       }
 
-      const patchedContent = originalContent.replace(oldContent, newContent);
+      // Strategy 2: Normalize line endings (CRLF -> LF) and try again
+      if (!patchedContent) {
+        const normalizedOriginal = originalContent.replace(/\r\n/g, '\n');
+        const normalizedOld = oldContent.replace(/\r\n/g, '\n');
+        const normalizedNew = newContent.replace(/\r\n/g, '\n');
+
+        if (normalizedOriginal.includes(normalizedOld)) {
+          // Found with normalized line endings - apply patch and restore original line endings
+          const hasWindowsLineEndings = originalContent.includes('\r\n');
+          patchedContent = normalizedOriginal.replace(normalizedOld, normalizedNew);
+          if (hasWindowsLineEndings) {
+            patchedContent = patchedContent.replace(/\n/g, '\r\n');
+          }
+        }
+      }
+
+      // Strategy 3: Trim whitespace from each line and match
+      if (!patchedContent) {
+        const trimLines = (str) => str.split('\n').map(line => line.trim()).join('\n');
+        const trimmedOriginal = trimLines(originalContent.replace(/\r\n/g, '\n'));
+        const trimmedOld = trimLines(oldContent.replace(/\r\n/g, '\n'));
+
+        if (trimmedOriginal.includes(trimmedOld)) {
+          // Found with trimmed lines - need to find actual position
+          // This is a fallback, so we'll do a line-by-line search
+          const originalLines = originalContent.replace(/\r\n/g, '\n').split('\n');
+          const oldLines = oldContent.replace(/\r\n/g, '\n').split('\n').filter(l => l.trim());
+
+          // Find the starting line by matching first non-empty line
+          let startIdx = -1;
+          for (let i = 0; i < originalLines.length; i++) {
+            if (originalLines[i].trim() === oldLines[0].trim()) {
+              // Check if subsequent lines match
+              let matches = true;
+              for (let j = 0; j < oldLines.length && (i + j) < originalLines.length; j++) {
+                if (originalLines[i + j].trim() !== oldLines[j].trim()) {
+                  matches = false;
+                  break;
+                }
+              }
+              if (matches) {
+                startIdx = i;
+                break;
+              }
+            }
+          }
+
+          if (startIdx >= 0) {
+            // Replace the lines
+            const newLines = newContent.replace(/\r\n/g, '\n').split('\n');
+            const beforeLines = originalLines.slice(0, startIdx);
+            const afterLines = originalLines.slice(startIdx + oldLines.length);
+            const hasWindowsLineEndings = originalContent.includes('\r\n');
+            const lineEnding = hasWindowsLineEndings ? '\r\n' : '\n';
+            patchedContent = [...beforeLines, ...newLines, ...afterLines].join(lineEnding);
+          }
+        }
+      }
+
+      // If no strategy worked, throw error with helpful message
+      if (!patchedContent) {
+        // Show what we were looking for to help debug
+        const preview = oldContent.substring(0, 100).replace(/\n/g, '\\n');
+        throw new Error(`Pattern not found in file: ${filePath}\nLooking for: "${preview}${oldContent.length > 100 ? '...' : ''}"`);
+      }
 
       // Write back
       fs.writeFileSync(absolutePath, patchedContent, 'utf8');

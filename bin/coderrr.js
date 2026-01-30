@@ -33,6 +33,14 @@ program
         console.log(`Recipe "${name}" not found.`);
       }
     }
+
+const { displayInsights } = require('../src/insightsUI');
+
+program
+  .command('insights')
+  .description('Display local usage statistics and task history')
+  .action(() => {
+    displayInsights();
   });
 // Optional: Load .env from user's home directory (for advanced users who want custom backend)
 const homeConfigPath = path.join(os.homedir(), '.coderrr', '.env');
