@@ -1,4 +1,4 @@
-const Agent = require('./src/agent');
+const Agent = require('../src/agent');
 
 async function testCustomPrompt() {
   console.log('Testing custom prompt functionality...');
