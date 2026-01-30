@@ -38,6 +38,7 @@ Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable pl
 - [Architecture](#architecture)
 - [Codebase Intelligence](#codebase-intelligence)
 - [Safety Features](#safety-features)
+- [Project Customization](#project-customization)
 - [Supported Test Frameworks](#supported-test-frameworks)
 - [Contributing](#contributing)
 - [Documentation](#documentation)
@@ -57,6 +58,7 @@ Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable pl
 - **Task Analysis** - Breaks down complex requests into structured, actionable TODO items
 - **File Operations** - Create, update, patch, delete, and read files with automatic directory creation
 - **Command Execution** - Runs shell commands with mandatory permission prompts (GitHub Copilot-style)
+- **Separate Terminal Execution** - Long-running commands run in their own terminal window, keeping Coderrr responsive
 - **Self-Healing** - Automatically retries failed steps with AI-generated fixes
 - **Auto Testing** - Automatically detects and runs tests after completing tasks
 - **Codebase Intelligence** - Scans and understands project structure for accurate file editing
@@ -66,6 +68,9 @@ Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable pl
 
 ### Advanced Features
 
+- **Cross-Session Memory** - Remembers conversation context across sessions via `.coderrr/memory.json`
+- **Skills.md Support** - Define persistent coding guidelines and patterns for your project
+- **Coderrr.md Support** - Add task-specific instructions that guide AI behavior
 - **Codebase Scanner** - Automatic project awareness with 1-minute cache
 - **Multi-Framework Support** - Works with Node.js, Python, Go, Rust, Java projects
 - **Environment Configuration** - Flexible backend configuration via environment variables
@@ -245,7 +250,7 @@ coderrr start --dir /path/to/project
 3. **TODO Generation** - Tasks are broken down into actionable steps
 4. **Execution** - The agent executes each step:
    - File operations (create, update, patch, delete)
-   - Command execution (with permission prompts)
+   - Command execution in separate terminal windows (with permission prompts)
 5. **Testing** - Automatically runs tests if a test framework is detected
 6. **Completion** - Shows summary and execution statistics
 ---
@@ -329,6 +334,53 @@ This means when you ask to "edit the agent file", it knows you mean `src/agent.j
 - **Step-by-step Execution** - Each action is executed individually with feedback
 - **Error Handling** - Graceful error handling with options to continue or stop
 - **Git-Friendly** - Works best in Git repositories for easy rollback
+
+---
+
+## Project Customization
+
+Coderrr supports project-specific customization through special files:
+
+### Skills.md - Persistent Guidelines
+
+Create a `Skills.md` file in your project root to define coding guidelines that apply to **all tasks**:
+
+```markdown
+# Project Skills
+
+## Code Style
+- Use TypeScript strict mode
+- Prefer functional components in React
+- Always add JSDoc comments to public functions
+
+## Architecture
+- Follow clean architecture patterns
+- Keep business logic in /src/domain
+```
+
+### Coderrr.md - Task-Specific Instructions
+
+Create a `Coderrr.md` file for task-specific guidance:
+
+```markdown
+# Current Focus
+
+Working on authentication module. Priority:
+1. Security first - validate all inputs
+2. Use bcrypt for password hashing
+3. JWT tokens with 1-hour expiry
+```
+
+### Cross-Session Memory
+
+Coderrr automatically saves conversation history in `.coderrr/memory.json`:
+
+- **Persists across sessions** - Resume where you left off
+- **Project-specific** - Each project has its own memory
+- **Auto-managed** - Keeps last 30 conversation turns
+- **Clear anytime** - Delete `.coderrr/memory.json` to reset
+
+> **Tip:** Add `.coderrr/` to your `.gitignore` to keep conversation history private.
 
 ---
 
