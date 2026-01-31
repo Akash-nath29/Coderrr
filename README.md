@@ -19,8 +19,40 @@
 
 Coderrr is an AI-powered coding agent that analyzes tasks, creates actionable plans, performs file operations, and executes commands with user permission. Built for developers who want automated assistance without sacrificing control.
 
+---
+
+## 🧩 Skills Marketplace
+
+**Extend Coderrr's capabilities with installable skills!**
+
+Browse and install skills from the [coderrr-skills](https://github.com/Akash-nath29/coderrr-skills) marketplace:
+
+```bash
+# Browse available skills
+coderrr market
+
+# Install a skill
+coderrr install web-scraper
+
+# List installed skills
+coderrr skills
+```
+
+| Skill | Description |
+|-------|-------------|
+| **web-scraper** | Fetch and extract content from web pages |
+| **pdf** | Create, merge, split, and extract PDFs |
+| **code-analyzer** | Lint code, count lines, find TODOs |
+| **docx/xlsx/pptx** | Work with Office documents |
+| **api-client** | Make HTTP requests |
+
+👉 **[Browse all skills →](https://github.com/Akash-nath29/coderrr-skills)**
+
+---
+
 ## Table of Contents
 
+- [🧩 Skills Marketplace](#-skills-marketplace)
 - [See Coderrr in Action](#see-coderrr-in-action)
 - [Features](#features)
   - [Core Capabilities](#core-capabilities)
