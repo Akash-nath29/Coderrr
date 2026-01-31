@@ -144,6 +144,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## 🔗 Links
 
-- [Coderrr CLI](https://github.com/Akash-nath29/coderrr)
-- [Documentation](https://github.com/Akash-nath29/coderrr#readme)
-- [Issue Tracker](https://github.com/Akash-nath29/coderrr-skills/issues)
+- [Coderrr CLI](https://github.com/Akash-nath29/Coderrr)
+- [Documentation](https://github.com/Akash-nath29/Coderrr#readme)
+- [Issue Tracker](https://github.com/Akash-nath29/Coderrr-skills/issues)
