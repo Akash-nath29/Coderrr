@@ -10,6 +10,8 @@ const GitOperations = require('./gitOps');
 const { sanitizeAxiosError, formatUserError, createSafeError, isNetworkError } = require('./errorHandler');
 const configManager = require('./configManager');
 const { getProvider } = require('./providers');
+const skillRegistry = require('./skillRegistry');
+const skillRunner = require('./skillRunner');
 
 /**
  * Core AI Agent that communicates with backend and executes plans
@@ -58,6 +60,10 @@ class Agent {
 
     // Track running processes spawned in separate terminals
     this.runningProcesses = [];
+
+    // Load installed agent skills for tool invocation
+    this.installedSkills = skillRegistry.loadAllSkills();
+    this.toolManifest = skillRegistry.generateToolManifest();
 
     // Register cleanup handler for when Coderrr exits
     this.registerExitCleanup();
@@ -249,6 +255,16 @@ ${this.codebaseContext.files.slice(0, 30).map(f => `- ${f.path} (${f.size} bytes
 
 When editing existing files, use EXACT filenames from the list above. When creating new files, ensure they don't conflict with existing ones.
 For command execution on ${osType}, use appropriate command separators (${osType === 'Windows' ? 'semicolon (;)' : 'ampersand (&&)'}).`;
+      }
+
+      // Inject available skill tools into context (if any are installed)
+      if (this.toolManifest) {
+        enhancedPrompt = `${enhancedPrompt}
+
+${this.toolManifest}
+
+To invoke a skill tool, use the action: "invoke_skill" with "skill", "tool", and "args" properties.
+Example: {"action": "invoke_skill", "skill": "web-scraper", "tool": "fetch_page", "args": {"url": "..."}, "summary": "Fetching page"}`;
       }
 
       const spinner = ui.spinner('Thinking...');
@@ -451,6 +467,10 @@ For command execution on ${osType}, use appropriate command separators (${osType
               // Store the process handle for potential cleanup later
               if (!this.runningProcesses) {
                 this.runningProcesses = [];
+
+                // Load installed agent skills for tool invocation
+                this.installedSkills = skillRegistry.loadAllSkills();
+                this.toolManifest = skillRegistry.generateToolManifest();
               }
               this.runningProcesses.push(result);
 
@@ -486,6 +506,24 @@ For command execution on ${osType}, use appropriate command separators (${osType
                 ui.error(`Command failed${this.autoRetry ? ` after ${this.maxRetries + 1} attempts` : ''}, stopping execution`);
                 break;
               }
+            }
+          } else if (step.action === 'invoke_skill') {
+            // Execute a skill tool
+            ui.info(`Invoking skill tool: ${step.skill}/${step.tool}`);
+
+            const result = await skillRunner.executeTool(
+              step.skill,
+              step.tool,
+              step.args || {},
+              { cwd: this.workingDir }
+            );
+
+            if (result.success) {
+              stepResult = `Skill ${step.skill}/${step.tool} executed successfully`;
+              stepSuccess = true;
+              ui.success(`Tool output:\n${result.output}`);
+            } else {
+              throw new Error(result.error || 'Skill tool execution failed');
             }
           } else {
             // File operation

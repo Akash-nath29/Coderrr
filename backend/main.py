@@ -93,7 +93,7 @@ class PlanStep(BaseModel):
     action: Literal[
         "create_file", "update_file", "patch_file", "delete_file",
         "read_file", "run_command", "create_dir", "delete_dir",
-        "list_dir", "rename_dir"
+        "list_dir", "rename_dir", "invoke_skill"
     ]
     path: Optional[str] = None
     content: Optional[str] = None
@@ -102,6 +102,9 @@ class PlanStep(BaseModel):
     old_path: Optional[str] = Field(default=None, alias="oldPath")
     new_path: Optional[str] = Field(default=None, alias="newPath")
     command: Optional[str] = None
+    skill: Optional[str] = None  # Skill name for invoke_skill
+    tool: Optional[str] = None   # Tool name for invoke_skill
+    args: Optional[dict] = None  # Arguments for invoke_skill
     summary: str
 
 

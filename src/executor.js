@@ -9,6 +9,7 @@ const fsSync = require('fs');
 const path = require('path');
 const os = require('os');
 const ui = require('./ui');
+const skillRunner = require('./skillRunner');
 
 class CommandExecutor {
   constructor() {

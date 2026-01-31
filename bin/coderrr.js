@@ -26,6 +26,10 @@ program
 const { displayRecipeList } = require('../src/recipeUI');
 const recipeManager = require('../src/recipeManager');
 const { displayInsights } = require('../src/insightsUI');
+const { registerSkillCommands } = require('../src/skillsUI');
+
+// Register skill management commands
+registerSkillCommands(program);
 
 // Optional: Load .env from user's home directory (for advanced users who want custom backend)
 const homeConfigPath = path.join(os.homedir(), '.coderrr', '.env');
