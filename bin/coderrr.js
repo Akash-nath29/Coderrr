@@ -71,6 +71,37 @@ program
     displayInsights();
   });
 
+// Install command - download and install skills from the remote registry
+program
+  .command('install <skill>')
+  .description('Install a skill from the remote registry')
+  .action(async (skill) => {
+    const SkillManager = require('../src/skillManager');
+    // Initialize SkillManager with working directory context, though it installs globally to ~/.coderrr
+    const skillManager = new SkillManager(process.cwd());
+    await skillManager.installSkill(skill);
+  });
+
+// Marketplace command - list available skills
+program
+  .command('marketplace')
+  .description('List available skills from the remote registry')
+  .action(async () => {
+    const SkillManager = require('../src/skillManager');
+    const skillManager = new SkillManager(process.cwd());
+    await skillManager.listAvailableSkills();
+  });
+
+// Skills command - list installed skills
+program
+  .command('skills')
+  .description('List installed skills')
+  .action(() => {
+    const SkillManager = require('../src/skillManager');
+    const skillManager = new SkillManager(process.cwd());
+    skillManager.listInstalledSkillsWithDetails();
+  });
+
 // Config command - configure provider and API key
 program
   .command('config')

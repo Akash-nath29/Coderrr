@@ -10,10 +10,7 @@ const GitOperations = require('./gitOps');
 const { sanitizeAxiosError, formatUserError, createSafeError, isNetworkError } = require('./errorHandler');
 const configManager = require('./configManager');
 const { getProvider } = require('./providers');
-
-/**
- * Core AI Agent that communicates with backend and executes plans
- */
+const SkillManager = require('./skillManager');
 
 class Agent {
   /**
@@ -52,6 +49,9 @@ class Agent {
     // Initialize project-local storage and load cross-session memory
     configManager.initializeProjectStorage(this.workingDir);
     this.conversationHistory = configManager.loadProjectMemory(this.workingDir);
+
+    // Initialize Skill Manager
+    this.skillManager = new SkillManager(this.workingDir);
 
     // Load user provider configuration
     this.providerConfig = configManager.getConfig();
@@ -225,6 +225,12 @@ class Agent {
       // Prepend skills prompt (Skills.md) if available - comes before task prompt
       if (this.skillsPrompt) {
         enhancedPrompt = `[SKILLS]\n${this.skillsPrompt}\n\n${enhancedPrompt}`;
+      }
+
+      // Dynamic Skill Injection (Remote Skills)
+      const dynamicSkills = this.skillManager.getRelevantSkillsInstructions(prompt);
+      if (dynamicSkills) {
+        enhancedPrompt = `[ADDITIONAL TOOLS & SKILLS]${dynamicSkills}\n\n${enhancedPrompt}`;
       }
 
       if (this.codebaseContext) {
