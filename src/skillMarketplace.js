@@ -13,7 +13,7 @@ const skillRegistry = require('./skillRegistry');
 const { installSkillDependencies } = require('./skillRunner');
 
 // Registry configuration
-const REGISTRY_URL = 'https://raw.githubusercontent.com/Akash-nath29/coderrr-skills/main/registry.json';
+const REGISTRY_URL = process.env.CODERRR_SKILLS_REGISTRY || 'https://raw.githubusercontent.com/Akash-nath29/coderrr-skills/main/registry.json';
 const CACHE_DIR = path.join(os.homedir(), '.coderrr');
 const CACHE_FILE = path.join(CACHE_DIR, 'registry-cache.json');
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
@@ -74,6 +74,14 @@ async function fetchRegistry() {
     try {
         const response = await axios.get(REGISTRY_URL, { timeout: 10000 });
         const registry = response.data;
+
+        // Validate registry format
+        if (!registry || typeof registry !== 'object') {
+            throw new Error('Invalid registry format');
+        }
+        if (!registry.skills || typeof registry.skills !== 'object') {
+            throw new Error('Invalid registry format');
+        }
 
         // Cache the result
         saveCache(registry);

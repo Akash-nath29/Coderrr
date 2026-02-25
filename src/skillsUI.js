@@ -263,6 +263,19 @@ function registerSkillCommands(program) {
             displaySkillsList();
         });
 
+    // List resources (skills, recipes, etc.)
+    program
+        .command('list <resource>')
+        .description('List available resources (skills, recipes, etc.)')
+        .action((resource) => {
+            if (resource.toLowerCase() === 'skills') {
+                displaySkillsList();
+            } else {
+                console.log(chalk.yellow(`\n▲ Unknown resource: "${resource}"`));
+                console.log(chalk.gray('Available resources: skills\n'));
+            }
+        });
+
     // Install a skill (local or from marketplace)
     program
         .command('install <source>')

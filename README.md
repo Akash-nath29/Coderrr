@@ -35,7 +35,8 @@ coderrr market
 coderrr install web-scraper
 
 # List installed skills
-coderrr skills
+coderrr list skills      # Preferred command
+coderrr skills           # Legacy alias (still supported)
 ```
 
 | Skill | Description |
