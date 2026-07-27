@@ -1,318 +1,154 @@
 # Contributing to Coderrr
 
-First off, thank you for considering contributing to Coderrr! 🎉
+Thank you for considering contributing to Coderrr! 🎉
 
 ## Code of Conduct
 
-This project and everyone participating in it is governed by our commitment to providing a welcoming and inspiring community for all.
+This project is governed by our commitment to a welcoming community for all.
+See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-## How Can I Contribute?
+## How can I contribute?
 
-### Reporting Bugs
+### Reporting bugs
 
-Before creating bug reports, please check the issue list as you might find out that you don't need to create one. When you are creating a bug report, please include as many details as possible:
+Check existing issues first. When filing one, include:
 
-* **Use a clear and descriptive title**
-* **Describe the exact steps which reproduce the problem**
-* **Provide specific examples to demonstrate the steps**
-* **Describe the behavior you observed after following the steps**
-* **Explain which behavior you expected to see instead and why**
-* **Include screenshots if possible**
-* **Include your environment details** (OS, Node.js version, Python version)
+* A clear, descriptive title
+* Exact steps to reproduce
+* What you observed, and what you expected instead
+* Your environment (OS, Python version, provider and model, Coderrr version —
+  `coderrr doctor` prints most of this)
+* Relevant output or logs
 
-### Suggesting Enhancements
+### Suggesting enhancements
 
-Enhancement suggestions are tracked as GitHub issues. When creating an enhancement suggestion, please include:
+* A clear, descriptive title
+* A step-by-step description of the suggestion
+* Current behaviour vs. the behaviour you want
+* Why it would be useful
 
-* **Use a clear and descriptive title**
-* **Provide a step-by-step description of the suggested enhancement**
-* **Provide specific examples to demonstrate the steps**
-* **Describe the current behavior and explain the behavior you expected to see**
-* **Explain why this enhancement would be useful**
+---
 
-### Pull Requests
+## Development setup
 
-The project follows a strict branching workflow to maintain code quality:
-
-**Branch Structure:**
-- `main` - Production-ready code (protected)
-- `dev` - Development branch for integration
-- `feature/*` - Feature branches for new work
-
-**Workflow:**
-1. Feature branches merge to `dev`
-2. `dev` merges to `main` after testing
-3. **Direct feature → main PRs are blocked by CI**
-
-**Creating a Pull Request:**
-
-1. **Create a feature branch from `dev`:**
-   ```bash
-   git checkout dev
-   git pull origin dev
-   git checkout -b feature/your-feature-name
-   ```
-
-2. **Make your changes and commit:**
-   ```bash
-   git add .
-   git commit -m "feat: add your feature description"
-   ```
-
-3. **Push to your fork:**
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-
-4. **Create PR to `dev` branch** (NOT to `main`)
-   - Go to GitHub and create a Pull Request
-   - **Base branch: `dev`**
-   - **Compare branch: `feature/your-feature-name`**
-
-5. **Wait for CI tests to pass:**
-   - All tests run automatically on PR
-   - Tests run in development environment
-   - Fix any failures before requesting review
-
-6. **After merge to `dev`:**
-   - Maintainers will create `dev` → `main` PR
-   - Production tests run before merge to `main`
-
-**PR Requirements:**
-* Fill in the required template
-* Follow the JavaScript and Python style guides
-* Include thoughtful tests
-* Update documentation as needed
-* End all files with a newline
-* All CI checks must pass
-
-## Development Setup
-
-### Prerequisites
-
-* Node.js 16+ and npm
-* Python 3.8+
-* Git
-
-### Setup Instructions
-
-1. **Fork and clone the repository**
-   ```bash
-   git clone https://github.com/YOUR-USERNAME/coderrr.git
-   cd coderrr
-   ```
-
-2. **Install Node.js dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Set up Python virtual environment**
-   ```bash
-   python -m venv env
-   # On Windows:
-   .\env\Scripts\Activate.ps1
-   # On Linux/Mac:
-   source env/bin/activate
-   ```
-
-4. **Install Python dependencies**
-   ```bash
-   pip install -r backend/requirements.txt
-   ```
-
-5. **Create your `.env` file**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys
-   ```
-
-6. **Link the CLI for local development**
-   ```bash
-   npm link
-   ```
-
-7. **Create your feature branch from `dev`**
-   ```bash
-   git checkout dev
-   git pull origin dev
-   git checkout -b feature/your-feature-name
-   ```
-
-### Running Tests
+**Prerequisites:** Python 3.10+, git, and [uv](https://docs.astral.sh/uv/)
+(recommended). Docker is optional — it enables the container sandbox tier.
 
 ```bash
-# Run all tests
-npm test
-
-# Run specific test
-node test/test-scanner.js
-node test/test-agent-scanner.js
+git clone https://github.com/YOUR-USERNAME/Coderrr.git
+cd Coderrr
+uv sync --all-extras --dev
+uv run coderrr --help
 ```
 
-### Code Structure
+### The four gates
 
-```
-coderrr/
-├── src/              # Core Node.js modules
-├── bin/              # CLI entry points
-├── backend/          # Python FastAPI backend
-│   ├── main.py      # Backend server
-│   └── requirements.txt
-├── test/             # Test files
-├── docs/             # Documentation
-├── examples/         # Usage examples
-└── .github/          # GitHub workflows and templates
+All of these are blocking in CI. Run them before opening a PR:
+
+```bash
+uv run pytest -q
+uv run ruff check src tests
+uv run ruff format --check src tests
+uv run mypy                          # strict mode
 ```
 
-## Style Guides
+### Project layout
 
-### JavaScript Style Guide
-
-* Use 2 spaces for indentation
-* Use semicolons
-* Use single quotes for strings
-* Use meaningful variable names
-* Add JSDoc comments for functions
-* Follow existing code patterns
-
-### Python Style Guide
-
-* Follow PEP 8
-* Use 4 spaces for indentation
-* Use type hints where appropriate
-* Add docstrings to functions and classes
-
-### Git Commit Messages
-
-* Use the present tense ("Add feature" not "Added feature")
-* Use the imperative mood ("Move cursor to..." not "Moves cursor to...")
-* Limit the first line to 72 characters or less
-* Reference issues and pull requests liberally after the first line
-* Use conventional commit format (feat, fix, docs, style, refactor, test, chore)
-
-**Commit Prefixes:**
-- `feat:` - New feature
-- `fix:` - Bug fix
-- `docs:` - Documentation changes
-- `style:` - Code style changes (formatting, semicolons, etc.)
-- `refactor:` - Code refactoring
-- `test:` - Adding or updating tests
-- `chore:` - Maintenance tasks
-
-Example:
 ```
-feat: add codebase scanner feature
+src/coderrr/
+├── cli.py          typer entry point
+├── agent/          loop.py, session.py, modes.py, state.py
+├── llm/            normalized types + adapters (openai_compat, anthropic, google)
+├── tools/          read/ · write/ · system/
+├── spec/           spec artifact store, models, markdown parser
+├── sandbox/        scratch and docker tiers
+├── skills/         registry client, ephemeral loader
+├── policy/         paths.py (containment), gate.py (approval)
+├── prompts/        system prompt assembly
+└── verify.py       LLM write verification
+tests/              pytest suite; runs fully offline
+docs/               architecture and migration docs
+```
 
-- Implement automatic project scanning
-- Cache results for performance
-- Add tests for scanner functionality
+### Design invariants
+
+Changes that weaken any of these need a strong justification in the PR:
+
+1. **Write tools are absent from the model's tool list in Planning mode.** Safety
+   comes from the tool not existing, not from a prompt asking the model to
+   behave.
+2. **Path containment (`policy/paths.py`) is deterministic code.** The LLM
+   verifier checks content quality; it is not a security boundary.
+3. **No tool runs commands against the user's working tree** — only
+   `run_in_sandbox`.
+4. **Tool failures return `ToolResult.error(...)`, never raise.** The model must
+   be able to recover.
+5. **Read/write tools document themselves via their pydantic schemas.** Only
+   SYSTEM tools belong in the system prompt.
+
+### Testing
+
+The suite runs entirely offline. `tests/fakes.py::FakeProvider` replays scripted
+model turns, so you can test the agent loop with no network and no API key;
+provider adapters are tested against recorded SSE fixtures with `respx`.
+
+* Add tests for new behaviour, covering both success and failure paths
+* Tests must never touch the real `~/.coderrr` — root everything in `tmp_path`
+* Anything touching `policy/paths.py` should get property-based coverage
+
+---
+
+## Pull requests
+
+**Branch model:** `feature/*` → `dev` → `main`. Direct feature-to-main PRs are
+blocked by CI.
+
+```bash
+git checkout dev && git pull origin dev
+git checkout -b feature/your-feature-name
+# ... work, run the four gates ...
+git push origin feature/your-feature-name
+```
+
+Open the PR against **`dev`**, fill in the template, and wait for CI.
+
+**Requirements:**
+
+* All four gates pass
+* New behaviour has tests
+* Docs updated for user-facing changes
+* Files end with a newline
+
+## Style
+
+**Python.** PEP 8 via `ruff` (100-column lines). Full type annotations — `mypy`
+runs in strict mode. Docstrings on modules and public functions; explain *why* a
+non-obvious approach was chosen, not what the code does.
+
+**Commit messages.** Present tense, imperative mood, first line ≤ 72 characters,
+conventional prefixes:
+
+`feat:` · `fix:` · `docs:` · `style:` · `refactor:` · `test:` · `chore:`
+
+```
+feat: add workspace containment for symlinked paths
+
+- Resolve symlinks before testing containment
+- Add property-based tests for traversal depth
 
 Closes #42
 ```
 
-## Project Architecture
-
-### Backend (Python/FastAPI)
-
-The backend (`backend/main.py`) handles:
-- AI model communication (Mistral/GitHub Models)
-- Request/response processing
-- JSON schema enforcement
-
-### Frontend (Node.js)
-
-The CLI (`src/`) handles:
-- User interaction
-- File operations
-- Command execution with permission
-- TODO list management
-- Auto-testing
-
-### Key Design Decisions
-
-1. **Separation of Concerns**: Backend handles AI, frontend handles file system
-2. **Permission-Based Execution**: All commands require user approval
-3. **Codebase Awareness**: Scanner provides project context to AI
-4. **Modular Architecture**: Each feature is a separate module
-5. **Strict Branching Model**: `feature` → `dev` → `main` workflow enforced by CI
-
-## Testing Guidelines
-
-* Write tests for new features
-* Ensure existing tests pass
-* Test both success and failure cases
-* Include integration tests for major features
-
 ## Documentation
 
-* Update README.md for user-facing changes
-* Update .github/copilot-instructions.md for architecture changes
-* Add JSDoc comments to new functions
-* Create examples for new features
+* [README.md](README.md) for user-facing changes
+* [.github/copilot-instructions.md](.github/copilot-instructions.md) for
+  architecture changes
+* [docs/V2-IMPLEMENTATION-PLAN.md](docs/V2-IMPLEMENTATION-PLAN.md) records the
+  decisions behind v2 and their rationale
 
-## Review Process
+## A note on v1
 
-1. **Create a feature branch from `dev`:**
-   ```bash
-   git checkout dev
-   git checkout -b feature/your-feature-name
-   ```
-
-2. **Make your changes:**
-   - Write code following style guides
-   - Add/update tests
-   - Update documentation
-
-3. **Test locally:**
-   ```bash
-   npm test
-   node test/test-scanner.js
-   ```
-
-4. **Commit with conventional format:**
-   ```bash
-   git commit -m "feat: your feature description"
-   ```
-
-5. **Push and create PR to `dev`:**
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-   - Create PR on GitHub: `feature/your-feature-name` → `dev`
-
-6. **CI/CD Automated Checks:**
-   - Branch workflow validation (blocks feature → main)
-   - Node.js tests (3 OS × 3 versions = 9 jobs)
-   - Python tests (3 OS × 4 versions = 12 jobs)
-   - Integration tests
-   - Linting & security audits
-   - Environment: Development
-
-7. **Code Review:**
-   - Respond to review feedback
-   - Make requested changes
-   - Re-push to update PR
-
-8. **After approval and merge to `dev`:**
-   - Maintainers will handle `dev` → `main` PR
-   - Production environment tests run
-   - Deployment to production
-
-9. **Celebrate when merged!** 🎉
-
-## Recognition
-
-Contributors will be added to:
-- README.md Contributors section
-- GitHub contributors page
-- Release notes
-
-## Questions?
-
-Feel free to:
-- Open an issue with the "question" label
-- Start a discussion in GitHub Discussions
-- Reach out to maintainers
-
-Thank you for contributing! 🚀
+Coderrr v1 was a Node CLI with a hosted FastAPI backend. It is retired and
+preserved on the `v1-legacy` branch. Please do not send PRs against it — see
+[docs/V2-MIGRATION.md](docs/V2-MIGRATION.md).
