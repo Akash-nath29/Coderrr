@@ -1,0 +1,102 @@
+# Coderrr — pinned development dependencies
+#
+# Generated. pyproject.toml [dependency-groups].dev is the source of truth.
+#
+# Regenerate:
+#     uv pip compile pyproject.toml --group dev -o requirements-dev.txt
+#
+# Preferred workflow is `uv sync --all-extras --dev`, which does not need this
+# file at all. It exists for contributors not using uv.
+#
+# Install:  pip install -r requirements-dev.txt && pip install -e .
+
+annotated-doc==0.0.4
+    # via typer
+annotated-types==0.8.0
+    # via pydantic
+anyio==4.14.2
+    # via httpx
+ast-serialize==0.6.0
+    # via mypy
+certifi==2026.7.22
+    # via
+    #   httpcore
+    #   httpx
+h11==0.16.0
+    # via httpcore
+httpcore==1.0.9
+    # via httpx
+httpx==0.28.1
+    # via
+    #   coderrr (pyproject.toml)
+    #   respx
+hypothesis==6.161.7
+    # via coderrr (pyproject.toml:dev)
+idna==3.18
+    # via
+    #   anyio
+    #   httpx
+iniconfig==2.3.0
+    # via pytest
+librt==0.13.0
+    # via mypy
+markdown-it-py==4.2.0
+    # via rich
+mdurl==0.1.2
+    # via markdown-it-py
+mypy==2.3.0
+    # via coderrr (pyproject.toml:dev)
+mypy-extensions==1.1.0
+    # via mypy
+packaging==26.2
+    # via pytest
+pathspec==1.1.1
+    # via mypy
+platformdirs==4.11.0
+    # via coderrr (pyproject.toml)
+pluggy==1.6.0
+    # via pytest
+prompt-toolkit==3.0.53
+    # via coderrr (pyproject.toml)
+pydantic==2.13.4
+    # via coderrr (pyproject.toml)
+pydantic-core==2.46.4
+    # via pydantic
+pygments==2.20.0
+    # via
+    #   pytest
+    #   rich
+pytest==9.1.1
+    # via
+    #   coderrr (pyproject.toml:dev)
+    #   pytest-asyncio
+pytest-asyncio==1.4.0
+    # via coderrr (pyproject.toml:dev)
+respx==0.23.1
+    # via coderrr (pyproject.toml:dev)
+rich==15.0.0
+    # via
+    #   coderrr (pyproject.toml)
+    #   typer
+ruff==0.16.0
+    # via coderrr (pyproject.toml:dev)
+shellingham==1.5.4
+    # via typer
+sortedcontainers==2.4.0
+    # via hypothesis
+tomli-w==1.2.0
+    # via coderrr (pyproject.toml)
+typer==0.27.0
+    # via coderrr (pyproject.toml)
+typing-extensions==4.16.0
+    # via
+    #   anyio
+    #   mypy
+    #   pydantic
+    #   pydantic-core
+    #   pytest-asyncio
+    #   typing-inspection
+typing-inspection==0.4.2
+    # via pydantic
+wcwidth==0.8.2
+    # via prompt-toolkit

@@ -35,19 +35,19 @@ Why is this change required? What problem does it solve?
 How has this been tested? Please describe your testing process:
 
 **Test Configuration**:
-- OS: [e.g., Windows 11]
-- Node.js Version: [e.g., 18.17.0]
-- Python Version: [e.g., 3.11.0]
+- OS: [e.g., Ubuntu 22.04]
+- Python Version: [e.g., 3.12.0]
 
 **Test Cases**:
 1. Test case 1 - Expected result
 2. Test case 2 - Expected result
 
-**Test Commands Run**:
+**The four gates** (all blocking in CI):
 ```bash
-# Commands you ran to test
-npm test
-node test/test-connection.js
+uv run pytest -q
+uv run ruff check src tests
+uv run ruff format --check src tests
+uv run mypy
 ```
 
 ## Screenshots (if applicable)
@@ -61,28 +61,37 @@ Add screenshots to demonstrate the changes.
 - [ ] My code follows the style guidelines of this project
 - [ ] I have performed a self-review of my code
 - [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] My changes generate no new warnings or errors
-- [ ] I have removed any debugging code or console.logs
+- [ ] `ruff check` and `ruff format --check` pass
+- [ ] `mypy` passes in strict mode
+- [ ] I have removed any debugging code or stray prints
 
 ### Testing
 
 - [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
+- [ ] `pytest` passes locally
+- [ ] My tests do not touch the real `~/.coderrr` (everything roots in `tmp_path`)
 - [ ] I have tested the changes manually
-- [ ] I have tested both the Node.js and Python components (if applicable)
+
+### Design invariants
+
+- [ ] Write tools remain absent from the model's tool list in Planning mode
+- [ ] Path containment stays deterministic code, not a model judgement
+- [ ] No new tool runs commands against the user's working tree
+- [ ] Tool failures return `ToolResult.error(...)` rather than raising
+
+*If this PR intentionally changes any of the above, explain why below.*
 
 ### Documentation
 
 - [ ] I have updated the documentation accordingly
 - [ ] I have updated the CHANGELOG.md
-- [ ] I have added JSDoc/docstring comments for new functions
+- [ ] I have added docstrings for new modules and public functions
 - [ ] I have updated the README.md if the changes affect user-facing features
 
 ### Dependencies
 
 - [ ] I have not added any unnecessary dependencies
-- [ ] If I added dependencies, I have updated both `package.json` and `requirements.txt` (if applicable)
-- [ ] I have updated `.env.example` if new environment variables were added
+- [ ] If I added dependencies, I updated `pyproject.toml` (and the right extra)
 
 ## Breaking Changes
 

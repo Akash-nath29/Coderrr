@@ -1,0 +1,132 @@
+name: v2 (Python)
+
+# Quality gates here are blocking. v1's workflow marked every lint and security
+# step `continue-on-error: true`, which meant npm audit and the linters could
+# never fail a build. Do not reintroduce that.
+
+on:
+  push:
+    branches: [v2, main]
+    paths:
+      - "src/coderrr/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/v2.yml"
+  pull_request:
+    branches: [v2, main]
+    paths:
+      - "src/coderrr/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/v2.yml"
+
+concurrency:
+  group: v2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Preserved from the retired v1 workflow: feature -> dev -> main.
+  branch-workflow:
+    name: Validate branch workflow
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Block direct feature-to-main PRs
+        if: |
+          github.event.pull_request.base.ref == 'main' &&
+          !startsWith(github.event.pull_request.head.ref, 'dev') &&
+          !startsWith(github.event.pull_request.head.ref, 'v2')
+        run: |
+          echo "::error::Direct PRs from feature branches to main are not allowed."
+          echo "::error::Open your PR against 'dev' (or 'v2'), which is then merged to main."
+          exit 1
+
+      - name: Workflow valid
+        run: echo "Branch workflow is valid."
+
+  quality:
+    name: Lint & types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install
+        run: uv sync --all-extras --dev
+
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+      - name: Ruff format
+        run: uv run ruff format --check src tests
+
+      - name: mypy (strict)
+        run: uv run mypy
+
+  test:
+    name: Tests (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        exclude:
+          # Keep the matrix affordable: only the floor and ceiling off-Linux.
+          - { os: macos-latest, python: "3.11" }
+          - { os: macos-latest, python: "3.12" }
+          - { os: windows-latest, python: "3.11" }
+          - { os: windows-latest, python: "3.12" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python }}
+
+      - name: Install
+        run: uv sync --all-extras --dev
+
+      - name: Test
+        run: uv run pytest -q
+
+      - name: CLI smoke test
+        run: |
+          uv run coderrr version
+          uv run coderrr --help
+          uv run coderrr doctor
+
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    needs: [quality, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build
+        run: uv build
+
+      - name: Verify the wheel installs and runs standalone
+        run: |
+          uv venv /tmp/verify
+          VIRTUAL_ENV=/tmp/verify uv pip install dist/*.whl
+          /tmp/verify/bin/coderrr version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
