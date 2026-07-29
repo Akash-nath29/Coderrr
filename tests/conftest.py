@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from tests.fakes import RecordingConsole
 
 from coderrr.agent.modes import AgentMode
 from coderrr.config import Config
@@ -19,6 +18,7 @@ from coderrr.spec.store import SpecStore
 from coderrr.tools.base import ToolContext
 from coderrr.tools.registry import ToolRegistry
 from coderrr.verify import NullVerifier
+from tests.fakes import RecordingConsole
 
 
 @pytest.fixture

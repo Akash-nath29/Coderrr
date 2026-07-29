@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from tests.fakes import FakeProvider, Turn
-
 from coderrr.agent.loop import run_conversation, run_task
 from coderrr.agent.modes import AgentMode
 from coderrr.llm.types import Message
 from coderrr.tools.base import ToolContext
 from coderrr.tools.registry import ToolRegistry
+from tests.fakes import FakeProvider, Turn
 
 
 async def _run(provider, registry, ctx, text="do the thing"):  # type: ignore[no-untyped-def]
