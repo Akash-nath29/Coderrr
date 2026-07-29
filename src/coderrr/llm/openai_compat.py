@@ -213,7 +213,11 @@ class OpenAICompatProvider:
                                         partial_json=fn["arguments"],
                                     )
             except httpx.HTTPError as exc:
-                raise ProviderError(f"{self.name} request failed: {exc}") from exc
+                # Timeout/read errors (httpx.ReadTimeout, ConnectTimeout, ...)
+                # stringify to "", so fall back to the class name to avoid an
+                # empty "request failed:" message.
+                detail = str(exc).strip() or type(exc).__name__
+                raise ProviderError(f"{self.name} request failed: {detail}") from exc
 
         # A model that emitted tool calls is requesting execution even when the
         # endpoint reports a generic finish reason -- Ollama does this.

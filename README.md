@@ -2,6 +2,7 @@
 
 **A free, open-source CLI coding agent that plans before it edits.**
 
+[![PyPI](https://img.shields.io/pypi/v/coderrr)](https://pypi.org/project/coderrr/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![GitHub issues](https://img.shields.io/github/issues/Akash-nath29/Coderrr)](https://github.com/Akash-nath29/Coderrr/issues)
@@ -143,6 +144,7 @@ use a different one.
 | `coderrr config` / `config show` / `config clear` | Credentials and model |
 | `coderrr skills search "<query>"` | Search the skill registry |
 | `coderrr doctor` | Environment check |
+| `coderrr version` | Print the version |
 
 ---
 
@@ -161,8 +163,9 @@ max_tool_turns = 50     # tool calls per attempt before giving up
 confirm_writes = false  # true prompts on every individual write
 
 [verify]
-mode  = "writes_only"   # always | writes_only | off
-model = ""              # empty reuses the main model; point at a cheap one
+mode        = "writes_only"  # always | writes_only | off
+model       = ""             # empty reuses the main model; point at a cheap one
+temperature = 0.3            # kept above zero so a false reject isn't repeatable
 
 [sandbox]
 tier    = "auto"        # auto | scratch | docker
@@ -174,7 +177,7 @@ network = false
 ## Development
 
 ```bash
-uv sync --all-extras --dev
+uv sync --all-extras
 uv run pytest -q
 uv run ruff check src tests && uv run ruff format --check src tests
 uv run mypy
@@ -196,8 +199,8 @@ loop, and provider adapters are tested against recorded SSE fixtures.
 
 ## Docs
 
-- [Implementation plan](docs/V2-IMPLEMENTATION-PLAN.md) — architecture and decisions
 - [Migration from v1](docs/V2-MIGRATION.md)
+- [Changelog](CHANGELOG.md)
 
 ---
 

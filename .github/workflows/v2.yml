@@ -1,34 +1,31 @@
 name: v2 (Python)
 
-# Quality gates here are blocking. v1's workflow marked every lint and security
-# step `continue-on-error: true`, which meant npm audit and the linters could
-# never fail a build. Do not reintroduce that.
+# Every gate here is blocking. v1's workflow marked its lint and security steps
+# `continue-on-error: true`, which meant they could never fail a build. Do not
+# reintroduce that.
 
 on:
   push:
     branches: [v2, main]
-    paths:
-      - "src/coderrr/**"
-      - "tests/**"
-      - "pyproject.toml"
-      - ".github/workflows/v2.yml"
   pull_request:
     branches: [v2, main]
-    paths:
-      - "src/coderrr/**"
-      - "tests/**"
-      - "pyproject.toml"
-      - ".github/workflows/v2.yml"
+
+permissions:
+  contents: read
 
 concurrency:
-  group: v2-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Superseded PR pushes are cancelled. Post-merge runs on v2/main are not --
+  # those are the record of whether the branch is green.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Preserved from the retired v1 workflow: feature -> dev -> main.
+  # Branching policy: feature -> dev/v2 -> main. A repository ruleset enforces
+  # this more strongly and cannot be bypassed; this job is the portable version.
   branch-workflow:
     name: Validate branch workflow
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: github.event_name == 'pull_request'
     steps:
       - name: Block direct feature-to-main PRs
@@ -41,25 +38,21 @@ jobs:
           echo "::error::Open your PR against 'dev' (or 'v2'), which is then merged to main."
           exit 1
 
-      - name: Workflow valid
-        run: echo "Branch workflow is valid."
-
   quality:
     name: Lint & types
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      UV_PYTHON: "3.12"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-      - name: Set up Python
-        run: uv python install 3.12
-
       - name: Install
-        run: uv sync --all-extras --dev
+        run: uv sync --all-extras
 
       - name: Ruff lint
         run: uv run ruff check src tests
@@ -73,34 +66,36 @@ jobs:
   test:
     name: Tests (${{ matrix.os }}, py${{ matrix.python }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: ${{ matrix.python }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.10", "3.11", "3.12", "3.13"]
-        exclude:
-          # Keep the matrix affordable: only the floor and ceiling off-Linux.
-          - { os: macos-latest, python: "3.11" }
-          - { os: macos-latest, python: "3.12" }
-          - { os: windows-latest, python: "3.11" }
-          - { os: windows-latest, python: "3.12" }
+        include:
+          # The floor, and the only interpreter on the tomli (not tomllib) path
+          # -- see the version guard in src/coderrr/config.py.
+          - { os: ubuntu-latest, python: "3.10" }
+          # The ceiling, and what most contributors actually run.
+          - { os: ubuntu-latest, python: "3.13" }
+          # The only non-POSIX branch shipped -- sandbox/scratch.py guards on
+          # os.name, and Windows subprocess cleanup has regressed before.
+          - { os: windows-latest, python: "3.13" }
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-      - name: Set up Python
-        run: uv python install ${{ matrix.python }}
-
       - name: Install
-        run: uv sync --all-extras --dev
+        run: uv sync --all-extras
 
       - name: Test
         run: uv run pytest -q
 
+      # Also covers Windows, where the standalone wheel check below does not run
+      # -- console-script wiring is precisely what breaks there.
       - name: CLI smoke test
         run: |
           uv run coderrr version
@@ -110,12 +105,14 @@ jobs:
   build:
     name: Build distribution
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [quality, test]
+    env:
+      UV_PYTHON: "3.12"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v5
 
       - name: Build
         run: uv build
@@ -130,3 +127,4 @@ jobs:
         with:
           name: dist
           path: dist/
+          if-no-files-found: error
