@@ -59,6 +59,16 @@ def _encodable(text: str, stream: IO[str]) -> bool:
     return True
 
 
+def _icons_for(*, encodable: bool, legacy_windows: bool) -> dict[str, str]:
+    """Pick the icon set from the two things that can go wrong.
+
+    A legacy console gets ASCII chrome even when it *can* encode the glyphs,
+    matching how Rich chooses its own box characters. Kept separate from the
+    console so both signals can be tested without a Windows host.
+    """
+    return _ICONS if encodable and not legacy_windows else _ASCII_ICONS
+
+
 def _degrade_unencodable(stream: IO[str]) -> None:
     """Print unencodable characters as ``?`` rather than killing the process.
 
@@ -80,9 +90,10 @@ class Console:
     def __init__(self, *, quiet: bool = False, interactive: bool = True) -> None:
         self._console = RichConsole()
         encodable = _encodable("".join(_ICONS.values()), self._console.file)
-        # A legacy console gets ASCII chrome even when it could encode the
-        # glyphs, matching how Rich picks its own box characters.
-        self._icons = _ICONS if encodable and not self._console.legacy_windows else _ASCII_ICONS
+        self._icons = _icons_for(
+            encodable=encodable,
+            legacy_windows=self._console.legacy_windows,
+        )
         if not encodable:
             _degrade_unencodable(self._console.file)
         self.quiet = quiet
