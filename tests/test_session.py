@@ -8,12 +8,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.fakes import FakeProvider, RecordingConsole, Turn
-
 from coderrr.agent.modes import AgentMode
 from coderrr.agent.session import Session
 from coderrr.config import Config
 from coderrr.llm.types import ToolResultBlock
+from tests.fakes import FakeProvider, RecordingConsole, Turn
 
 REQS_MD = "# Requirements: Add a greeting\n\nAdd farewell()."
 DESIGN_MD = "# Design: Add a greeting\n\nOne function."

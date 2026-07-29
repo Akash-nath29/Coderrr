@@ -144,14 +144,14 @@ class ScratchSandbox:
         )
 
         timed_out = False
+        stdout_b, stderr_b = b"", b""
         try:
             stdout_b, stderr_b = await asyncio.wait_for(process.communicate(), timeout=limit)
         except asyncio.TimeoutError:
             timed_out = True
             _kill_tree(process)
             with contextlib.suppress(Exception):
-                await process.wait()
-            stdout_b, stderr_b = b"", b""
+                stdout_b, stderr_b = await process.communicate()
 
         return ExecResult(
             command=command,
