@@ -1,1 +1,1 @@
-"""Test support package."""
+"""Test package marker for stable test imports."""
