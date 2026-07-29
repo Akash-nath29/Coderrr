@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-07-30
 
 Complete rewrite. Coderrr is now a single Python CLI distributed on PyPI as
 `coderrr`. The npm package `coderrr-cli` and the hosted backend are retired.
@@ -28,7 +28,9 @@ See [docs/V2-MIGRATION.md](docs/V2-MIGRATION.md).
   active tier is always reported.
 - **Deterministic workspace containment** (`policy/paths.py`), with symlink
   resolution and property-based test coverage.
-- **LLM write verification**, configurable via `[verify]`.
+- **LLM write verification**, configurable via `[verify]` — including
+  `[verify].temperature`, which defaults to `0.3` rather than `0.0` so that a
+  weak verifier's false rejection is not reproduced identically on every retry.
 - **Ephemeral skills** — markdown guidance fetched on demand, integrity-checked,
   deleted after use.
 - **Offline test suite.** A scripted fake provider drives the agent loop; adapters
@@ -57,6 +59,16 @@ See [docs/V2-MIGRATION.md](docs/V2-MIGRATION.md).
 - v1 skills that shipped executable Python tools
 
 ### Fixed
+
+- Windows consoles that cannot encode the status glyphs no longer take the CLI
+  down. cp1252 and cp437 reject most of the icon set, which made every command
+  raise `UnicodeEncodeError`; icons now fall back to ASCII, and unencodable
+  model output — an arrow in a spec, an em dash in a summary — prints as `?`
+  rather than aborting the command partway through.
+- Provider errors that stringify to nothing now name the exception class instead
+  of reporting an empty `request failed:`. Read and connect timeouts were the
+  common case.
+- Sandbox timeouts clean up the subprocess tree on Windows.
 
 Issues found in the v1 audit that this rewrite closes: unconfirmed file writes,
 absent path containment, shell injection in the skill runner and git commit

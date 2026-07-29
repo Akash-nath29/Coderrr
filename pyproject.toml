@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "coderrr"
-version = "2.0.0.dev0"
+version = "2.0.0"
 description = "A free, open-source, customizable CLI coding agent with spec-driven development"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -61,6 +61,12 @@ coderrr = "coderrr.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/coderrr"]
+
+# Hatchling ships every file that is not gitignored, including untracked ones.
+# CLAUDE.md is agent instructions for this repo, not something to publish, and an
+# sdist on PyPI cannot be recalled once uploaded.
+[tool.hatch.build.targets.sdist]
+exclude = ["CLAUDE.md"]
 
 [tool.ruff]
 line-length = 100
