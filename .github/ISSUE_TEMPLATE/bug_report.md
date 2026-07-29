@@ -36,26 +36,36 @@ Paste logs here
 
 ## Environment
 
+Run `coderrr doctor` and paste the output — it covers most of the below.
+
+```
+paste `coderrr doctor` output here
+```
+
 **System Information:**
 - OS: [e.g., Windows 11, macOS 14, Ubuntu 22.04]
 - Shell: [e.g., PowerShell 5.1, bash 5.0]
-- Node.js Version: [e.g., 18.17.0]
-- Python Version: [e.g., 3.11.0]
-- Coderrr Version: [e.g., 1.0.0]
+- Python Version: [e.g., 3.12.0]
+- Coderrr Version: [e.g., 2.0.0]
 
 **Configuration:**
-- Backend URL: [from `.env` file]
-- AI Provider: [GitHub Models / Mistral AI]
-- Model: [e.g., mistral-large-2411]
+- Provider: [ollama / anthropic / openai / google / openrouter]
+- Model: [e.g., gemma4:31b-cloud]
+- Sandbox tier: [scratch / docker]
+
+**Which phase did it happen in?**
+- [ ] Planning (before the plan was approved)
+- [ ] Approval prompt
+- [ ] Execution (after approval)
 
 ## Additional Context
 
-Add any other context about the problem here (e.g., this only happens with certain types of requests, it started happening after an update, etc.).
+Anything else that helps — whether it only happens with certain requests, when
+it started, and so on. If a spec was created, attaching `tasks.md` often helps.
 
 ## Checklist
 
 - [ ] I have searched for similar issues
 - [ ] I have included all requested information above
-- [ ] I have checked that the backend is running
-- [ ] I have verified my `.env` configuration
+- [ ] I am on Coderrr v2 (v1 / the npm package is no longer supported)
 - [ ] I have tested with the latest version of Coderrr

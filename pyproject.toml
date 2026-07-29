@@ -1,0 +1,89 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "coderrr"
+version = "2.0.0.dev0"
+description = "A free, open-source, customizable CLI coding agent with spec-driven development"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Akash Nath", email = "anath5440@gmail.com" }]
+keywords = ["ai", "coding-agent", "cli", "llm", "spec-driven", "developer-tools"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+]
+
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "prompt_toolkit>=3.0",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "platformdirs>=4.2",
+    "tomli-w>=1.0",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.40"]
+anthropic = ["anthropic>=0.34"]
+google = ["google-genai>=0.3"]
+keyring = ["keyring>=25.0"]
+all = ["openai>=1.40", "anthropic>=0.34", "google-genai>=0.3", "keyring>=25.0"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "hypothesis>=6.100",
+    "respx>=0.21",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[project.urls]
+Homepage = "https://github.com/Akash-nath29/Coderrr"
+Repository = "https://github.com/Akash-nath29/Coderrr"
+Issues = "https://github.com/Akash-nath29/Coderrr/issues"
+
+[project.scripts]
+coderrr = "coderrr.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/coderrr"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["B008"]  # typer uses function calls in argument defaults
+
+[tool.mypy]
+python_version = "3.10"
+packages = ["coderrr"]
+mypy_path = "src"
+strict = true
+warn_return_any = true
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["google.genai.*", "keyring.*", "tomli.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error"]

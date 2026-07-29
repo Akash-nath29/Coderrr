@@ -1,0 +1,69 @@
+# Coderrr — pinned runtime dependencies
+#
+# pyproject.toml is the source of truth. This file is a generated lock for
+# environments that expect requirements.txt (plain pip, Docker, CI images).
+#
+# Regenerate after changing dependencies in pyproject.toml:
+#     uv pip compile pyproject.toml -o requirements.txt
+#
+# Provider SDKs are NOT listed here on purpose: every provider is reached over
+# plain httpx, so nothing extra is needed for OpenAI, Anthropic, Google,
+# OpenRouter or Ollama. The optional extras only add the OS keyring:
+#     pip install 'coderrr[keyring]'
+#
+# Install:  pip install -r requirements.txt && pip install -e . --no-deps
+
+annotated-doc==0.0.4
+    # via typer
+annotated-types==0.8.0
+    # via pydantic
+anyio==4.14.2
+    # via httpx
+certifi==2026.7.22
+    # via
+    #   httpcore
+    #   httpx
+h11==0.16.0
+    # via httpcore
+httpcore==1.0.9
+    # via httpx
+httpx==0.28.1
+    # via coderrr (pyproject.toml)
+idna==3.18
+    # via
+    #   anyio
+    #   httpx
+markdown-it-py==4.2.0
+    # via rich
+mdurl==0.1.2
+    # via markdown-it-py
+platformdirs==4.11.0
+    # via coderrr (pyproject.toml)
+prompt-toolkit==3.0.53
+    # via coderrr (pyproject.toml)
+pydantic==2.13.4
+    # via coderrr (pyproject.toml)
+pydantic-core==2.46.4
+    # via pydantic
+pygments==2.20.0
+    # via rich
+rich==15.0.0
+    # via
+    #   coderrr (pyproject.toml)
+    #   typer
+shellingham==1.5.4
+    # via typer
+tomli-w==1.2.0
+    # via coderrr (pyproject.toml)
+typer==0.27.0
+    # via coderrr (pyproject.toml)
+typing-extensions==4.16.0
+    # via
+    #   anyio
+    #   pydantic
+    #   pydantic-core
+    #   typing-inspection
+typing-inspection==0.4.2
+    # via pydantic
+wcwidth==0.8.2
+    # via prompt-toolkit

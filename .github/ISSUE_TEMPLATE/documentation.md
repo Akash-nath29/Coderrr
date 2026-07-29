@@ -11,11 +11,12 @@ assignees: ''
 Which documentation needs improvement? (check all that apply)
 
 - [ ] README.md
-- [ ] API.md
-- [ ] ARCHITECTURE.md
+- [ ] docs/V2-IMPLEMENTATION-PLAN.md (architecture and decisions)
+- [ ] docs/V2-MIGRATION.md (migrating from v1)
 - [ ] CONTRIBUTING.md
-- [ ] Code comments
-- [ ] Examples
+- [ ] SECURITY.md
+- [ ] Tool descriptions (the JSON schemas the model reads)
+- [ ] Code comments / docstrings
 - [ ] Other: _____
 
 ## Problem

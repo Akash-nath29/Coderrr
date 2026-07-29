@@ -5,7 +5,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - Unreleased
+
+Complete rewrite. Coderrr is now a single Python CLI distributed on PyPI as
+`coderrr`. The npm package `coderrr-cli` and the hosted backend are retired.
+See [docs/V2-MIGRATION.md](docs/V2-MIGRATION.md).
+
+### Added
+
+- **Spec-driven development.** Every request produces `requirements.md`,
+  `design.md` and `tasks.md` in `.coderrr/specs/NNN-slug/`. The plan is shown and
+  approved before anything is modified. Specs double as cross-session memory and
+  are meant to be committed.
+- **Two-mode agent.** Write tools are absent from the model's tool list during
+  planning and unlocked only by approval — enforced structurally, not by prompt.
+- **Real agent loop.** The model reads, acts, observes tool results, and
+  iterates, replacing v1's blind up-front plan generation.
+- **Five providers over plain HTTP** — Ollama (default), Anthropic, OpenAI,
+  Google, OpenRouter. No provider SDKs required.
+- **Sandboxed execution.** `run_in_sandbox` replaces `run_command`: a scratch
+  copy of the project by default, a container when Docker is available. The
+  active tier is always reported.
+- **Deterministic workspace containment** (`policy/paths.py`), with symlink
+  resolution and property-based test coverage.
+- **LLM write verification**, configurable via `[verify]`.
+- **Ephemeral skills** — markdown guidance fetched on demand, integrity-checked,
+  deleted after use.
+- **Offline test suite.** A scripted fake provider drives the agent loop; adapters
+  are tested against recorded SSE fixtures.
+
+### Changed
+
+- API keys stay on your machine and go straight to your provider. Nothing is
+  proxied through a server.
+- Credentials resolve from environment → OS keyring → `~/.coderrr/config.toml`,
+  written mode `0600` (was `0644`).
+- `edit_file` requires an exact, unique match. The three fuzzy-matching fallbacks
+  are gone — with a real loop the model reads before editing.
+- `.coderrr/` now separates committed `specs/` from gitignored `cache/` and
+  `session/`.
+- CI quality gates are blocking. v1 marked every lint and security check
+  `continue-on-error`.
+
+### Removed
+
+- Node.js CLI, `bin/`, and all `src/*.js` modules
+- Hosted FastAPI backend (`backend/`) and its Vercel deployment
+- `run_command` — arbitrary shell against the working tree
+- Auto-commit and `git add .` behaviour; version control is yours
+- Recipes and insights subsystems
+- v1 skills that shipped executable Python tools
+
+### Fixed
+
+Issues found in the v1 audit that this rewrite closes: unconfirmed file writes,
+absent path containment, shell injection in the skill runner and git commit
+messages, backend SSRF and open-proxy abuse, API keys transiting a third party,
+command steps reporting success before completion, predictable temp-file paths,
+and PID-based termination of unrelated processes.
+
+---
+
+## [1.1.1] and earlier
 
 ### Added
 - Codebase scanner for intelligent file editing
