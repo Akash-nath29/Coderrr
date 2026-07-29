@@ -30,3 +30,4 @@ token.txt
 .coderrr/session/
 agent_docs/*
 .claude/*
+uv.lock
