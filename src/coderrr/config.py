@@ -70,6 +70,11 @@ class VerifyConfig(BaseModel):
     #: Empty means reuse the main model. Point this at something cheap.
     model: str = ""
     batch: bool = True
+    #: Sampling temperature for the verifier call. Kept above zero so a weak
+    #: model that spuriously rejects a valid write does not do so identically on
+    #: every retry -- at 0.0 a false "reject" is deterministic and the retry
+    #: loop can never escape it.
+    temperature: float = Field(default=0.3, ge=0.0, le=2.0)
 
 
 class SandboxConfig(BaseModel):

@@ -195,6 +195,9 @@ class GoogleProvider:
                                     )
                                     stop_reason = "tool_use"
             except httpx.HTTPError as exc:
-                raise ProviderError(f"google request failed: {exc}") from exc
+                # Timeout/read errors stringify to "", so fall back to the class
+                # name to avoid an empty "request failed:" message.
+                detail = str(exc).strip() or type(exc).__name__
+                raise ProviderError(f"google request failed: {detail}") from exc
 
         yield MessageStop(stop_reason=stop_reason, usage=usage)

@@ -28,3 +28,5 @@ token.txt
 # they are project knowledge and belong in version control.
 .coderrr/cache/
 .coderrr/session/
+agent_docs/*
+.claude/*

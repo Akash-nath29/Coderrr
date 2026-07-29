@@ -199,7 +199,10 @@ class AnthropicProvider:
                                 f"anthropic stream error: {err.get('message', 'unknown')}"
                             )
             except httpx.HTTPError as exc:
-                raise ProviderError(f"anthropic request failed: {exc}") from exc
+                # Timeout/read errors stringify to "", so fall back to the class
+                # name to avoid an empty "request failed:" message.
+                detail = str(exc).strip() or type(exc).__name__
+                raise ProviderError(f"anthropic request failed: {detail}") from exc
 
         yield MessageStop(
             stop_reason=stop_reason,

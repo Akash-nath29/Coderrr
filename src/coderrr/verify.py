@@ -119,7 +119,7 @@ class Verifier:
                     tools=[],
                     model=self.model,
                     max_tokens=300,
-                    temperature=0.0,
+                    temperature=self.config.temperature,
                 )
             )
         except ProviderError as exc:
