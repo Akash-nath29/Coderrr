@@ -6,9 +6,10 @@ tests can swap in a quiet implementation without touching agent code.
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 from collections.abc import Sequence
-from typing import Any
+from typing import IO, Any
 
 from rich.console import Console as RichConsole
 from rich.markdown import Markdown
@@ -28,12 +29,62 @@ _ICONS = {
     "write": "~",
 }
 
+# Windows consoles still default to cp1252 or cp437, and neither can encode most
+# of the glyphs above. Rich already falls back for its own boxes and rules; these
+# icons are ours, so the fallback has to be too.
+_ASCII_ICONS = {
+    "info": "-",
+    "success": "+",
+    "warning": "!",
+    "error": "x",
+    "tool": "*",
+    "read": "?",
+    "write": "~",
+}
+
+
+def _encodable(text: str, stream: IO[str]) -> bool:
+    """Whether ``stream`` can represent ``text`` in its own encoding.
+
+    A stream with no encoding (an in-memory buffer, a test double) never runs
+    the encode step, so nothing can fail there.
+    """
+    encoding = getattr(stream, "encoding", None)
+    if not encoding:
+        return True
+    try:
+        text.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return False
+    return True
+
+
+def _degrade_unencodable(stream: IO[str]) -> None:
+    """Print unencodable characters as ``?`` rather than killing the process.
+
+    Our own chrome is a fixed set we can substitute, but most of what reaches a
+    terminal is model-generated -- an arrow in a spec, an em dash in a summary.
+    Under the default ``strict`` handler a single such character raises
+    ``UnicodeEncodeError`` halfway through a command and loses the work.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if reconfigure is None:
+        return
+    with contextlib.suppress(OSError, ValueError):  # already detached or read-only
+        reconfigure(errors="replace")
+
 
 class Console:
     """Rich-backed console with the prompts the agent needs."""
 
     def __init__(self, *, quiet: bool = False, interactive: bool = True) -> None:
         self._console = RichConsole()
+        encodable = _encodable("".join(_ICONS.values()), self._console.file)
+        # A legacy console gets ASCII chrome even when it could encode the
+        # glyphs, matching how Rich picks its own box characters.
+        self._icons = _ICONS if encodable and not self._console.legacy_windows else _ASCII_ICONS
+        if not encodable:
+            _degrade_unencodable(self._console.file)
         self.quiet = quiet
         self.interactive = interactive
 
@@ -44,16 +95,16 @@ class Console:
             self._console.print(*args, **kwargs)
 
     def info(self, message: str) -> None:
-        self.print(f"[cyan]{_ICONS['info']}[/] {message}")
+        self.print(f"[cyan]{self._icons['info']}[/] {message}")
 
     def success(self, message: str) -> None:
-        self.print(f"[green]{_ICONS['success']}[/] {message}")
+        self.print(f"[green]{self._icons['success']}[/] {message}")
 
     def warning(self, message: str) -> None:
-        self.print(f"[yellow]{_ICONS['warning']}[/] {message}")
+        self.print(f"[yellow]{self._icons['warning']}[/] {message}")
 
     def error(self, message: str) -> None:
-        self.print(f"[red]{_ICONS['error']}[/] {message}")
+        self.print(f"[red]{self._icons['error']}[/] {message}")
 
     def rule(self, title: str = "") -> None:
         if not self.quiet:
@@ -86,10 +137,10 @@ class Console:
 
     def tool_call(self, name: str, summary: str = "") -> None:
         detail = f" [dim]{summary}[/]" if summary else ""
-        self.print(f"  [magenta]{_ICONS['tool']}[/] [bold]{name}[/]{detail}")
+        self.print(f"  [magenta]{self._icons['tool']}[/] [bold]{name}[/]{detail}")
 
     def tool_result(self, name: str, ok: bool, detail: str = "") -> None:
-        icon = f"[green]{_ICONS['success']}[/]" if ok else f"[red]{_ICONS['error']}[/]"
+        icon = f"[green]{self._icons['success']}[/]" if ok else f"[red]{self._icons['error']}[/]"
         suffix = f" [dim]{detail}[/]" if detail else ""
         self.print(f"    {icon} {name}{suffix}")
 
