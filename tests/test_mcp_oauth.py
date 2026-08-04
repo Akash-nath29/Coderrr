@@ -15,6 +15,8 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
+import stat
 import time
 from pathlib import Path
 from typing import Any
@@ -732,10 +734,19 @@ def test_credentials_round_trip(tmp_path: Path) -> None:
     assert loaded.token_url == f"{ORIGIN}/token"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
 def test_the_credentials_file_is_not_world_readable(tmp_path: Path) -> None:
+    """A refresh token on disk must not be readable by other users.
+
+    Windows ignores everything but the read-only bit, so the file reports 0o666
+    there and this assertion is POSIX-only -- same as the config-file equivalent
+    in test_config.py.
+    """
     store = store_at(tmp_path)
     store.save("linear", stored_auth())
-    assert store.path.stat().st_mode & 0o777 == 0o600
+
+    mode = stat.S_IMODE(store.path.stat().st_mode)
+    assert mode == 0o600, f"expected 0600, got {oct(mode)}"
 
 
 def test_unknown_servers_load_as_none(tmp_path: Path) -> None:

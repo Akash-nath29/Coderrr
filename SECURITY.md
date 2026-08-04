@@ -117,6 +117,11 @@ OAuth tokens go to the OS keyring when one is available, otherwise
 never written to `config.toml`: that file is meant to be read, edited and
 committed, and it is rewritten wholesale on every save.
 
+**On Windows those mode bits are not enforced** — the OS ignores everything but
+the read-only flag, so the file is protected by the user-profile ACL rather than
+by Coderrr. In practice the keyring is the normal path there, since Credential
+Manager is always available. The same caveat applies to `config.toml`.
+
 Coderrr registers itself dynamically with each authorization server (RFC 7591)
 and requests a public client, so where the server allows it there is no client
 secret to store. The flow uses PKCE (S256), a `state` check, a loopback redirect

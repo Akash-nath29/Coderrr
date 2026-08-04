@@ -160,6 +160,11 @@ class CredentialStore:
 
         # Opened 0600 from the outset rather than chmod-ed afterwards, which
         # would leave a window where a refresh token is world-readable.
+        #
+        # POSIX only. Windows ignores the mode beyond its read-only bit, so there
+        # the file is protected by the user-profile ACL rather than by us -- one
+        # more reason the keyring is tried first, and it is the usual path on
+        # Windows because Credential Manager is always present.
         descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
             os.write(descriptor, data)
