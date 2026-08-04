@@ -121,6 +121,27 @@ def test_chrome_prints_without_raising(monkeypatch: pytest.MonkeyPatch) -> None:
     assert raw.getvalue(), "nothing reached the stream"
 
 
+def test_table_cells_are_not_read_as_markup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bracketed text in a cell is data and must survive to the screen.
+
+    Rich reads ``[...]`` as a style tag, so an MCP server on an IPv6 address, or
+    a spec titled "Add [beta] support", used to lose the bracketed part with no
+    error anywhere.
+    """
+    raw, stream = _fake_stdout(monkeypatch, "utf-8")
+    ui = Console(interactive=False)
+
+    ui.table(
+        ["Server", "Target"],
+        [["v6", "http://[::1]:3845/mcp"], ["spec", "Add [beta] support"]],
+    )
+
+    stream.flush()
+    written = raw.getvalue().decode("utf-8")
+    assert "[::1]" in written
+    assert "[beta]" in written
+
+
 def test_model_generated_text_degrades_instead_of_crashing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

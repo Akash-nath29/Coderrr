@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Literal
 
 import tomli_w
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -91,6 +92,111 @@ class SkillsConfig(BaseModel):
     ephemeral: bool = True
 
 
+#: ``${VAR}`` in an MCP header or env value, resolved from the environment at
+#: connect time. Tokens therefore never have to be written into config.toml.
+_ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def expand_env_refs(values: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+    """Substitute ``${VAR}`` references, reporting which ones were unset.
+
+    Unset variables expand to the empty string rather than raising: a missing
+    token should surface as the server's own 401, which names the service, not
+    as a Coderrr traceback during startup. The caller warns using the returned
+    names.
+    """
+    missing: list[str] = []
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        value = os.environ.get(name)
+        if value is None:
+            missing.append(name)
+            return ""
+        return value
+
+    return {key: _ENV_REF.sub(replace, val) for key, val in values.items()}, sorted(set(missing))
+
+
+class McpServerConfig(BaseModel):
+    """One custom MCP server.
+
+    ``transport`` is inferred by ``coderrr mcp add`` from the shape of what the
+    user pasted -- a URL means HTTP, a command means stdio -- so the common path
+    never requires hand-editing this table.
+    """
+
+    transport: Literal["http", "stdio"] = "http"
+
+    #: HTTP transport.
+    url: str = ""
+    headers: dict[str, str] = Field(default_factory=dict)
+
+    #: stdio transport. The command runs on the host, outside the sandbox.
+    command: str = ""
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: str = ""
+
+    enabled: bool = True
+    #: Ceiling for connect-and-list-tools, and for each individual tool call.
+    timeout: float = Field(default=30.0, gt=0)
+
+    #: ``auto`` attempts OAuth when the server answers 401; ``none`` never does,
+    #: for a server behind a static token or no auth at all.
+    auth: Literal["auto", "none"] = "auto"
+    #: Only for servers that do not offer dynamic client registration.
+    client_id: str = ""
+    #: Overrides the scopes the server advertises. Usually left empty.
+    scopes: list[str] = Field(default_factory=list)
+
+    #: When true, this server failing to connect aborts the run instead of
+    #: continuing without it. Off by default because most servers are auxiliary
+    #: and a coding task should survive one being down -- but a run whose tool
+    #: list silently shrank is a run whose results cannot be reproduced, so
+    #: anyone depending on this server should say so.
+    required: bool = False
+
+    #: Bare tool names the user chose to always allow. Written back by the
+    #: "always" answer at the approval prompt; this is what keeps a frictionless
+    #: server from re-prompting forever.
+    allowed_tools: list[str] = Field(default_factory=list)
+    #: Bare tool names to hide entirely. The escape hatch for a server that
+    #: exposes more capability than the user wants reachable.
+    denied_tools: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_target(self) -> McpServerConfig:
+        if self.transport == "http" and not self.url.strip():
+            raise ValueError("an http MCP server needs a url")
+        if self.transport == "stdio" and not self.command.strip():
+            raise ValueError("a stdio MCP server needs a command")
+        return self
+
+    @property
+    def label(self) -> str:
+        """One-line description of what this server actually connects to."""
+        if self.transport == "http":
+            return self.url
+        return " ".join([self.command, *self.args])
+
+    def resolved_headers(self) -> tuple[dict[str, str], list[str]]:
+        return expand_env_refs(self.headers)
+
+    def resolved_env(self) -> tuple[dict[str, str], list[str]]:
+        return expand_env_refs(self.env)
+
+
+class McpConfig(BaseModel):
+    servers: dict[str, McpServerConfig] = Field(default_factory=dict)
+    #: Cap on how much of one tool result is folded into context. MCP servers
+    #: can return whole design files or issue histories.
+    max_result_bytes: int = Field(default=64 * 1024, ge=1024)
+
+    def enabled_servers(self) -> dict[str, McpServerConfig]:
+        return {name: cfg for name, cfg in self.servers.items() if cfg.enabled}
+
+
 class UIConfig(BaseModel):
     stream: bool = True
     show_usage: bool = True
@@ -102,6 +208,7 @@ class Config(BaseModel):
     verify: VerifyConfig = Field(default_factory=VerifyConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    mcp: McpConfig = Field(default_factory=McpConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
 
     #: Only populated when the keyring is unavailable.
@@ -195,6 +302,22 @@ def load_config(path: Path | None = None) -> Config:
         return Config()
 
 
+def _prune_servers(servers: dict[str, Any]) -> None:
+    """Drop the fields of the other transport from each MCP server table.
+
+    An http server has no ``command`` and a stdio one has no ``url``, so writing
+    both leaves half of every entry blank. This file is meant to be readable and
+    hand-editable, and a stdio table showing ``url = ""`` invites someone to fill
+    it in and wonder why nothing happens.
+    """
+    for server in servers.values():
+        if not isinstance(server, dict):
+            continue
+        for key, value in list(server.items()):
+            if value == "" or value == [] or value == {}:
+                server.pop(key)
+
+
 def save_config(config: Config, path: Path | None = None) -> Path:
     """Write config with owner-only permissions."""
     target = path or CONFIG_FILE
@@ -204,6 +327,10 @@ def save_config(config: Config, path: Path | None = None) -> Path:
     # Drop empty tables so the file stays readable.
     if not payload.get("api_keys"):
         payload.pop("api_keys", None)
+    if not (payload.get("mcp") or {}).get("servers"):
+        payload.pop("mcp", None)
+    else:
+        _prune_servers(payload["mcp"]["servers"])
 
     data = tomli_w.dumps(payload).encode("utf-8")
 

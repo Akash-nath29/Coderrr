@@ -20,6 +20,7 @@ pipx install coderrr          # or: uv tool install coderrr
 | `run_command` against your working tree | `run_in_sandbox` against an isolated copy |
 | `~/.coderrr/config.json`, mode 0644 | OS keyring, or `config.toml` at mode 0600 |
 | Conversation history as memory | Spec artifacts as memory |
+| No way to add external tools | Custom MCP servers (`coderrr mcp add`), tools bridged in as `mcp__<server>__<tool>` |
 
 ## Command mapping
 

@@ -13,6 +13,7 @@ from typing import IO, Any
 
 from rich.console import Console as RichConsole
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.syntax import Syntax
@@ -224,7 +225,10 @@ class Console:
         for header in headers:
             table.add_column(header)
         for row in rows:
-            table.add_row(*row)
+            # Cells are data, never markup: an MCP server at http://[::1]:3845
+            # or a spec titled "Add [beta] support" would otherwise have the
+            # bracketed part read as a style tag and silently dropped.
+            table.add_row(*(escape(str(cell)) for cell in row))
         self._console.print(table)
 
     # -- input -----------------------------------------------------------
