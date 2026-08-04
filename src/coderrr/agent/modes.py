@@ -24,9 +24,16 @@ class AgentMode(str, Enum):
 
 #: Tool classes exposed per mode. The absence of WRITE from PLANNING is the
 #: whole safety property -- do not add it.
+#:
+#: EXTERNAL appears in both modes because reading external context is most
+#: valuable *while planning* -- pulling a Figma frame or an issue description is
+#: how the spec gets grounded. Its safety comes from per-tool approval in
+#: :mod:`coderrr.policy.gate`, not from mode.
 EXPOSED_CLASSES: dict[AgentMode, frozenset[ToolClass]] = {
-    AgentMode.PLANNING: frozenset({ToolClass.READ, ToolClass.SYSTEM}),
-    AgentMode.EXECUTION: frozenset({ToolClass.READ, ToolClass.WRITE, ToolClass.SYSTEM}),
+    AgentMode.PLANNING: frozenset({ToolClass.READ, ToolClass.SYSTEM, ToolClass.EXTERNAL}),
+    AgentMode.EXECUTION: frozenset(
+        {ToolClass.READ, ToolClass.WRITE, ToolClass.SYSTEM, ToolClass.EXTERNAL}
+    ),
 }
 
 

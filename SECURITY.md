@@ -83,6 +83,58 @@ Skills are markdown guidance, not executable code — they add no capability to 
 agent whose tools are already gated. Downloads are size-limited and, where the
 registry publishes a `sha256`, integrity-checked. They are deleted after use.
 
+### MCP servers
+
+Connecting an MCP server is the one action that grants the agent capability
+Coderrr did not write. Four boundaries apply.
+
+**Per-tool approval.** Bridged tools are class `EXTERNAL` and every one of them
+asks the first time it is called, then remembers the answer in
+`[mcp.servers.<name>].allowed_tools`. Plan approval covers edits to your files;
+it does not cover filing a ticket in someone else's system.
+
+**Server claims are never trusted.** MCP tool annotations such as `readOnlyHint`
+are hints from an unverified peer. Coderrr shows them next to the approval prompt
+and uses them for nothing else. The spec makes the same point: clients should not
+make tool-use decisions from annotations.
+
+**Tool output is untrusted data.** Every result is labelled as external content
+in context, and the system prompt states that instructions found inside it are an
+attack rather than a request. A ticket description, a design comment, or a page a
+server fetched can be written by anyone. This is mitigation, not a boundary — the
+approval gate and path containment are what actually hold.
+
+**stdio servers run outside the sandbox.** A stdio server is a program on your
+machine with your environment, not a sandboxed subprocess. Coderrr prints the
+exact command and asks before saving it; adding a server by URL does not ask,
+because typing the URL is itself the decision. Only add commands you would run
+yourself.
+
+### MCP credentials
+
+OAuth tokens go to the OS keyring when one is available, otherwise
+`~/.coderrr/credentials.json`, created with mode `0600`. They are deliberately
+never written to `config.toml`: that file is meant to be read, edited and
+committed, and it is rewritten wholesale on every save.
+
+**On Windows those mode bits are not enforced** — the OS ignores everything but
+the read-only flag, so the file is protected by the user-profile ACL rather than
+by Coderrr. In practice the keyring is the normal path there, since Credential
+Manager is always available. The same caveat applies to `config.toml`.
+
+Coderrr registers itself dynamically with each authorization server (RFC 7591)
+and requests a public client, so where the server allows it there is no client
+secret to store. The flow uses PKCE (S256), a `state` check, a loopback redirect
+on `127.0.0.1`, and the RFC 8707 `resource` parameter so tokens are bound to the
+one MCP server they were issued for.
+
+**A browser only opens when you ask for it** — `mcp add`, `mcp login`, `/mcp
+login`. Access tokens refresh silently, including during a run, but nothing
+during a task will open a browser or prompt for credentials.
+
+`coderrr mcp logout <name>` discards a server's tokens; `coderrr mcp reset
+<name>` forgets its remembered tool approvals.
+
 ---
 
 ## Recommendations
@@ -93,14 +145,29 @@ registry publishes a `sha256`, integrity-checked. They are deleted after use.
 - Install Docker if the agent will execute code you would not run yourself.
 - Set `confirm_writes = true` in `[agent]` for per-write prompting.
 - Prefer environment variables or the keyring over storing keys in config.
+- Add MCP servers you trust with the data in your workspace, and prefer HTTP
+  servers over stdio ones where both exist.
+- Use `denied_tools` to hide any MCP tool you would rather keep unreachable,
+  rather than relying on declining it each time.
 
 ## Known considerations
 
 **Prompt injection.** Content the agent reads — source files, dependency
-manifests, skills — can attempt to influence it. The approval gate and path
-containment hold regardless of what the model is persuaded to attempt, but a
-plan generated from poisoned input can still be wrong. Read plans before
-approving.
+manifests, skills, and MCP tool results — can attempt to influence it. The
+approval gate and path containment hold regardless of what the model is persuaded
+to attempt, but a plan generated from poisoned input can still be wrong. Read
+plans before approving.
+
+MCP results deserve particular care because they are the one input an outside
+party can write directly. A server that returns issue text or page content is
+relaying data from whoever authored it.
+
+**MCP tools are available while planning.** External tools are exposed in both
+modes, because reading a design or an issue is usually how a plan gets grounded.
+The consequence is that a filesystem-style MCP server, once you allow one of its
+write tools, can modify files during a phase that otherwise has no write tool.
+The `WRITE` class remains absent from planning; this is a capability arriving from
+outside that taxonomy. Use `denied_tools`, or do not connect such a server.
 
 **AI-generated code.** Review it as you would any contribution. Passing tests in
 the sandbox is evidence, not proof.

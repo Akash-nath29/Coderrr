@@ -59,16 +59,38 @@ src/coderrr/
 ├── cli.py          typer entry point
 ├── agent/          loop.py, session.py, modes.py, state.py
 ├── llm/            normalized types + adapters (openai_compat, anthropic, google)
+│                   schema.py — JSON Schema $ref flattening for tool payloads
 ├── tools/          read/ · write/ · system/
 ├── spec/           spec artifact store, models, markdown parser
 ├── sandbox/        scratch and docker tiers
 ├── skills/         registry client, ephemeral loader
+├── mcp/            custom MCP servers — see below
 ├── policy/         paths.py (containment), gate.py (approval)
 ├── prompts/        system prompt assembly
 └── verify.py       LLM write verification
 tests/              pytest suite; runs fully offline
 docs/               architecture and migration docs
 ```
+
+The `mcp/` package is layered so that only one module speaks the wire protocol,
+which is what keeps the rest testable with a fake connection:
+
+```
+mcp/
+├── types.py        plain dataclasses + the Connection protocol
+├── client.py       JSON-RPC 2.0 over Streamable HTTP and stdio
+├── oauth.py        RFC 9728/8414 discovery, 7591 registration, PKCE, tokens
+├── credentials.py  token storage: keyring, else a 0600 file
+├── naming.py       mcp__<server>__<tool>, sanitized to provider rules
+├── bridge.py       one MCP tool → one Coderrr Tool (generated subclass)
+├── manager.py      connection lifetimes, and "may this tool run?"
+├── setup.py        shared by `coderrr mcp` and the REPL's /mcp
+└── catalog.py      built-in server shorthands (currently empty)
+```
+
+There is no MCP SDK dependency. The client is hand-written over `httpx` for the
+same reason the provider adapters are: the official SDK bundles its server half,
+and `starlette`/`uvicorn` have no business in a CLI.
 
 ### Design invariants
 
@@ -85,6 +107,15 @@ Changes that weaken any of these need a strong justification in the PR:
    be able to recover.
 5. **Read/write tools document themselves via their pydantic schemas.** Only
    SYSTEM tools belong in the system prompt.
+6. **What an MCP server says about itself never decides anything.** Tool
+   annotations such as `readOnlyHint` may shape what a prompt *says*; the gate
+   reads the user's stored answer, never the server's claim.
+7. **No browser opens during a run.** OAuth's interactive leg belongs to
+   `mcp add` / `mcp login` only. Silent token refresh anywhere is fine; a task
+   that blocks on a browser window is not.
+8. **Only `mcp/client.py` speaks the MCP wire format.** Everything above it uses
+   `mcp/types.py`. That boundary is why the SDK could be dropped by rewriting one
+   file, and why the rest of the package tests without a network.
 
 ### Testing
 
@@ -95,6 +126,23 @@ provider adapters are tested against recorded SSE fixtures with `respx`.
 * Add tests for new behaviour, covering both success and failure paths
 * Tests must never touch the real `~/.coderrr` — root everything in `tmp_path`
 * Anything touching `policy/paths.py` should get property-based coverage
+
+**MCP.** Use `tests/test_mcp.py::FakeConnection` rather than a live server; it
+satisfies the `Connection` protocol, so tool naming, schema handling, approval and
+result rendering are all reachable without a network or a subprocess.
+
+The OAuth flow is tested end to end anyway: `open_url` is injected, so a fake
+browser fetches a **real loopback socket** while `respx` stands in for the remote
+endpoints. Two things to know if you touch it:
+
+* `respx` intercepts *every* httpx request, including the one to `127.0.0.1`. Add
+  `respx.mock.route(host="127.0.0.1").pass_through()` or the redirect never
+  arrives and the login waits for its full timeout.
+* Pass a short `timeout=` to `oauth.login` in tests. The production default is
+  300 seconds, which turns a regression into a hung suite.
+
+Credential tests must construct `CredentialStore(use_keyring=False)`. The default
+would write to the developer's real OS keyring.
 
 ---
 

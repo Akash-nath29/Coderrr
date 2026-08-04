@@ -18,7 +18,7 @@ async def call(registry: ToolRegistry, ctx: ToolContext, name: str, **kwargs: ob
 
 @pytest.mark.parametrize("tool_cls", ALL_TOOLS, ids=lambda c: c.name)
 def test_every_tool_exports_a_valid_schema(tool_cls: type) -> None:
-    spec = tool_cls.spec()
+    spec = tool_cls().spec()
     assert spec.name
     assert spec.description.strip()
     assert spec.input_schema["type"] == "object"
@@ -34,7 +34,7 @@ def test_every_input_field_is_documented() -> None:
     """Schemas are the model's only documentation for read/write tools."""
     undocumented = []
     for tool_cls in ALL_TOOLS:
-        schema = tool_cls.spec().input_schema
+        schema = tool_cls().spec().input_schema
         for field, meta in (schema.get("properties") or {}).items():
             if not meta.get("description"):
                 undocumented.append(f"{tool_cls.name}.{field}")

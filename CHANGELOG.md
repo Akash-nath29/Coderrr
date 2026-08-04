@@ -5,6 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Custom MCP servers, with no extra dependency.** `coderrr mcp add <name> <url>`
+  connects an HTTP server; `coderrr mcp add <name> -- <command>` connects one over
+  stdio. Their tools are bridged in as `mcp__<server>__<tool>` and available while
+  planning as well as executing, since external context is usually what grounds a
+  plan. The client is hand-written over `httpx` and `asyncio` — JSON-RPC 2.0 with
+  Streamable HTTP and stdio — for the same reason the provider adapters are: the
+  official SDK bundles its server half, and `starlette`/`uvicorn` do not belong in
+  a CLI. Tools only; resources and prompts are not implemented.
+- **`/mcp` in the REPL** lists servers and adds one from a pasted URL, verifying
+  the connection before saving. A server added mid-session is picked up by the
+  next request without a restart.
+- **OAuth 2.1 for MCP servers**, so remote servers like Linear and Notion work
+  directly rather than through a proxy. Implements RFC 9728 protected-resource
+  discovery, RFC 8414 server metadata, RFC 7591 dynamic client registration,
+  PKCE, and RFC 8707 resource indicators, all over `httpx`. `coderrr mcp add`
+  and `/mcp add` offer the sign-in when a server answers 401; `coderrr mcp login`
+  / `logout` and `/mcp login` manage it afterwards. `--no-browser` prints the URL
+  for SSH and remote sessions.
+  - **A browser opens only when asked.** Access tokens refresh silently at any
+    time, including mid-run, but the interactive leg is confined to those
+    commands so an agent run never blocks on a browser window.
+  - Tokens go to the OS keyring, falling back to `~/.coderrr/credentials.json` at
+    mode 0600 — never `config.toml`, which is rewritten on save and meant to be
+    committable. A reissued refresh token is persisted immediately, since servers
+    that rotate invalidate the old one.
+- **`required = true` per server.** A server that cannot be reached is reported
+  and skipped by default, but that silently shortens the tool list and makes the
+  same request produce different work. Marking a server required turns that into
+  an error before the run starts.
+- **Per-tool MCP approval.** Each bridged tool asks the first time it is used and
+  remembers the answer in `[mcp.servers.<name>].allowed_tools` — one question per
+  tool rather than a prompt users learn to click through. `denied_tools` hides a
+  tool entirely; `coderrr mcp reset <name>` forgets the answers. What a server
+  claims about itself via MCP tool annotations is shown but never trusted.
+- `coderrr mcp list` / `test` / `remove` / `enable` / `reset`, and MCP status in
+  `coderrr doctor`.
+- `${VAR}` interpolation in MCP headers and stdio environments, so tokens stay in
+  the environment instead of `config.toml`.
+
+### Fixed
+
+- The `Authorization` scheme for MCP OAuth tokens is normalized to `Bearer`
+  instead of echoing the server's `token_type` verbatim. RFC 6750 defines it as
+  case-insensitive, so servers return `bearer`/`Bearer`/`BEARER` interchangeably,
+  but real gateways compare literally — a lowercase value produced a 401 straight
+  after a successful sign-in, indistinguishable from an invalid token.
+- Tool schemas containing `$ref` are now flattened before reaching a provider.
+  The Google adapter stripped `$defs` while leaving the pointers into it, which
+  would have sent Gemini dangling references.
+- Table cells are no longer parsed as Rich markup, so bracketed values survive to
+  the terminal — an MCP server on `http://[::1]:3845` or a spec titled
+  `Add [beta] support` previously lost the bracketed part silently.
+
+### Changed
+
+- `Tool.spec()` is an instance method, and argument coercion moved behind a new
+  `Tool.validate_input()` hook, so a tool discovered at runtime can supply its own
+  schema. No change for the built-in tools.
+
 ## [2.0.0] - 2026-07-30
 
 Complete rewrite. Coderrr is now a single Python CLI distributed on PyPI as

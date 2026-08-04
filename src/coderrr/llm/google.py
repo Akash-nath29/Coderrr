@@ -19,6 +19,7 @@ from typing import Any
 import httpx
 
 from coderrr.llm.base import ProviderError
+from coderrr.llm.schema import flatten_refs
 from coderrr.llm.types import (
     Message,
     MessageStop,
@@ -65,7 +66,10 @@ def _tools_payload(tools: list[ToolSpec]) -> list[dict[str, Any]]:
                 {
                     "name": t.name,
                     "description": t.description,
-                    "parameters": _sanitize_schema(t.input_schema),
+                    # Flatten first: dropping "$defs" while leaving the "$ref"
+                    # that pointed into it would send Gemini a dangling pointer.
+                    # Pydantic schemas rarely use either, but MCP servers do.
+                    "parameters": _sanitize_schema(flatten_refs(t.input_schema)),
                 }
                 for t in tools
             ]

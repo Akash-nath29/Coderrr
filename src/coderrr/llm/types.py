@@ -82,14 +82,19 @@ class Message:
 class ToolClass(str, Enum):
     """Tool taxonomy. Drives both prompt assembly and the approval policy.
 
-    READ    -- side-effect free; auto-approved.
-    WRITE   -- mutates the workspace; only exposed in Execution mode.
-    SYSTEM  -- agent-internal helpers; documented in the system prompt.
+    READ     -- side-effect free; auto-approved.
+    WRITE    -- mutates the workspace; only exposed in Execution mode.
+    SYSTEM   -- agent-internal helpers; documented in the system prompt.
+    EXTERNAL -- bridged in from a user-configured MCP server. Reaches a service
+                Coderrr knows nothing about, so it is approved per tool rather
+                than per class, and the server's own claims about itself are
+                never what decides.
     """
 
     READ = "read"
     WRITE = "write"
     SYSTEM = "system"
+    EXTERNAL = "external"
 
 
 @dataclass(frozen=True)

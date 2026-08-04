@@ -15,9 +15,11 @@ from pathlib import Path
 
 from coderrr.agent.loop import LoopResult, run_conversation, run_task
 from coderrr.agent.modes import AgentMode
-from coderrr.config import Config
+from coderrr.config import Config, save_config
 from coderrr.llm.base import Provider
-from coderrr.llm.types import Message, Usage
+from coderrr.llm.types import Message, ToolClass, Usage
+from coderrr.mcp.manager import McpManager
+from coderrr.mcp.types import McpStartupError
 from coderrr.sandbox import build_sandbox
 from coderrr.skills.loader import SkillManager
 from coderrr.spec.models import TaskStatus
@@ -99,6 +101,10 @@ class Session:
         self.specs.ensure_layout()
         self.skills = SkillManager(config=config.skills)
         self.sandbox = build_sandbox(workspace, config.sandbox)
+        # `persist` fires only when the user answers "always allow" at an MCP
+        # approval prompt, which is the one moment their choice has to outlive
+        # the session.
+        self.mcp = McpManager(config=config.mcp, persist=self._persist_config)
 
         if verifier is not None:
             self.verifier: Verifier = verifier
@@ -116,6 +122,7 @@ class Session:
             skills=self.skills,
             verifier=self.verifier,
             mode=AgentMode.PLANNING,
+            mcp=self.mcp,
         )
 
     # -- phases ----------------------------------------------------------
@@ -203,6 +210,17 @@ class Session:
 
     async def run(self, request: str, *, auto_approve: bool = False) -> SessionResult:
         try:
+            try:
+                await self.connect_mcp()
+            except McpStartupError as exc:
+                # A required server is missing. Stopping here rather than working
+                # with a shorter tool list is the whole point of the flag.
+                self.ui.error(str(exc))
+                return SessionResult(
+                    approved=False,
+                    planning=LoopResult(stop="error", summary=str(exc)),
+                )
+
             planning = await self.plan(request)
 
             if planning.stop == "error":
@@ -241,7 +259,7 @@ class Session:
 
             return SessionResult(approved=True, planning=planning, execution=execution, usage=usage)
         finally:
-            self.cleanup()
+            await self.aclose()
 
     async def _nudge_for_spec(self, planning: LoopResult) -> LoopResult:
         """Ask once more when planning ended without producing a spec."""
@@ -278,6 +296,32 @@ class Session:
             self.ui.warning(f"{done}/{total} task(s) complete.")
         for task in blocked:
             self.ui.error(f"{task.id} blocked: {task.notes or 'no reason given'}")
+
+    def _persist_config(self) -> None:
+        save_config(self.config)
+
+    async def connect_mcp(self) -> None:
+        """Connect configured MCP servers and expose their tools for this request.
+
+        Connections last one request. The REPL builds its event loop per request
+        with ``asyncio.run``, so a transport held open across requests would be
+        bound to a loop that no longer exists; reconnecting costs one handshake
+        and sidesteps that entirely.
+        """
+        if not self.mcp.configured:
+            return
+        await self.mcp.connect(self.ui)
+        self.registry.register_all(self.mcp.tools())
+
+    async def aclose(self) -> None:
+        """Release MCP connections, skills and sandbox state."""
+        # Order matters: the bridged tools must leave the registry before the
+        # connections underneath them close, or a retry could offer the model a
+        # tool whose transport is already gone.
+        self.registry.drop_class(ToolClass.EXTERNAL)
+        with contextlib.suppress(Exception):  # teardown must never raise
+            await self.mcp.aclose()
+        self.cleanup()
 
     def cleanup(self) -> None:
         """Release skills and sandbox state. Skills are ephemeral by design."""

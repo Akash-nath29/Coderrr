@@ -134,6 +134,141 @@ use a different one.
 
 ---
 
+## MCP servers
+
+Connect your own [MCP](https://modelcontextprotocol.io) servers and their tools
+become tools Coderrr can call — Figma, Linear, Notion, or something internal.
+**No extra install** — like every provider here, the client is plain HTTP.
+
+From inside a session, paste a URL and you're done:
+
+```
+coderrr ❯ /mcp
+  1. Add a server
+  2. Done
+? MCP: 1
+? URL or command: http://127.0.0.1:3845/mcp
+? Name for it: figma
+◇ Connecting to figma...
+■ figma connected — 1 tool(s): get_code
+◇ Available as mcp__figma__* from your next request.
+```
+
+`/mcp add <url>` skips the menu. It takes effect on your next request — no
+restart. Or from the shell:
+
+```bash
+# a URL is an HTTP server
+coderrr mcp add figma http://127.0.0.1:3845/mcp
+
+# after -- it's a command, run over stdio
+coderrr mcp add sqlite -- npx -y @some/mcp-server --db ./app.db
+```
+
+Either way Coderrr connects immediately, so a wrong port or an app that isn't
+running shows up there and not mid-task.
+
+### Servers that need a login
+
+For a server behind OAuth — Linear, Notion — adding it offers the sign-in there
+and then:
+
+```
+coderrr ❯ /mcp add https://mcp.linear.app/mcp
+? Name for it: linear
+◇ Connecting to linear...
+◇ linear requires you to sign in.
+? Open your browser to authorize now? [y/n] (y): y
+◇ Opening your browser to authorize...
+■ Signed in to linear (https://mcp.linear.app).
+```
+
+Coderrr registers itself with the server, opens your browser with PKCE, catches
+the redirect on a loopback port, and stores the tokens. Access tokens are renewed
+silently when they expire; you only see a browser again if the refresh token
+itself lapses.
+
+**A browser only ever opens when you ask for it** — `mcp add`, `/mcp add`,
+`mcp login`. Nothing during a task will open one, so agent runs never block on a
+window you have to go and find.
+
+```bash
+coderrr mcp login linear               # sign in, or re-authorize
+coderrr mcp login linear --no-browser  # print the URL instead (SSH, remote dev)
+coderrr mcp logout linear              # discard stored credentials
+```
+
+Tokens live in your OS keyring when one is available, otherwise
+`~/.coderrr/credentials.json` at mode 0600 — never in `config.toml`, which is
+meant to be readable and committable.
+
+For a server that uses a static token instead, skip OAuth entirely and pass the
+header. Tokens belong in the environment, not in your config file:
+
+```bash
+coderrr mcp add notion https://mcp.notion.com/mcp -H 'Authorization=Bearer ${NOTION_TOKEN}'
+```
+
+Bridged tools are named `mcp__<server>__<tool>` and are available **while
+planning as well as executing** — pulling a design or an issue description is
+usually how a plan gets grounded in the first place.
+
+**Each tool asks the first time it's used, then remembers.**
+
+```
+figma → get_code [read-only]
+? Allow mcp__figma__get_code?
+  1. Allow once
+  2. Always allow this tool
+  3. Deny
+```
+
+"Always" is saved to `allowed_tools` for that server, so it's one question per
+tool rather than a prompt you learn to click through. `coderrr mcp reset <name>`
+forgets those answers.
+
+What a server claims about itself is never what decides. MCP tool annotations
+like `readOnlyHint` are hints from an unverified peer — Coderrr shows them next
+to the prompt and ignores them otherwise. Everything a server returns is labelled
+as external data in context, because a ticket body or a design comment can be
+written by anyone.
+
+Two things worth knowing:
+
+- **A stdio server runs on your machine, outside the sandbox**, with your
+  environment. Coderrr shows the exact command and asks before saving it. Adding
+  by URL doesn't ask — typing the URL is the decision.
+- **MCP tools work during planning**, so a filesystem-style server, once
+  allowed, can write files in a mode that otherwise has no write tool. Use
+  `denied_tools` to hide anything you'd rather keep out of reach.
+
+### When a server isn't available
+
+By default a server that can't be reached is reported and skipped — a coding task
+shouldn't die because a design tool is down. But that silently shortens the tool
+list, and the same request then produces different work. If you depend on a
+server, say so and get an error instead:
+
+```toml
+[mcp.servers.internal-api]
+required = true    # a connect or login failure aborts the run
+```
+
+```bash
+coderrr mcp list                  # what's configured, and what's signed in
+coderrr mcp test figma            # connect and list its tools
+coderrr mcp enable figma --off    # keep the config, stop using it
+coderrr mcp remove figma
+```
+
+The client is written over `httpx` and `asyncio` — JSON-RPC 2.0 with Streamable
+HTTP and stdio transports, plus OAuth 2.1 with dynamic client registration and
+PKCE — for the same reason the provider adapters are: the official SDK ships its
+server half too, and `uvicorn` has no business in a CLI. Tools only for now;
+resources and prompts aren't implemented.
+
+---
+
 ## Commands
 
 | Command | What it does |
@@ -143,6 +278,9 @@ use a different one.
 | `coderrr spec list` / `spec show` | Inspect specs in this project |
 | `coderrr config` / `config show` / `config clear` | Credentials and model |
 | `coderrr skills search "<query>"` | Search the skill registry |
+| `coderrr mcp add <name> <url>` | Connect an MCP server (or `/mcp` in a session) |
+| `coderrr mcp login <name>` / `logout` | Sign in to a server that uses OAuth |
+| `coderrr mcp list` / `test` / `remove` | Manage MCP servers |
 | `coderrr doctor` | Environment check |
 | `coderrr version` | Print the version |
 
@@ -170,7 +308,22 @@ temperature = 0.3            # kept above zero so a false reject isn't repeatabl
 [sandbox]
 tier    = "auto"        # auto | scratch | docker
 network = false
+
+# written by `coderrr mcp add`; hand-editable
+[mcp.servers.figma]
+transport     = "http"         # http | stdio
+url           = "http://127.0.0.1:3845/mcp"
+auth          = "auto"         # auto | none — OAuth when the server asks for it
+required      = false          # true: a connect/login failure aborts the run
+timeout       = 30.0           # seconds per request
+allowed_tools = ["get_code"]   # answered "always allow"
+denied_tools  = []             # never bridged at all
+client_id     = ""             # only for servers without dynamic registration
+scopes        = []             # overrides what the server advertises
 ```
+
+A stdio server uses `command`, `args`, `env` and `cwd` instead of `url`. OAuth
+tokens are never written here — see [MCP servers](#mcp-servers).
 
 ---
 

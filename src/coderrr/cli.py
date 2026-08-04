@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import platform as platform_mod
 import sys
+import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,6 +16,7 @@ from coderrr.agent.session import Session
 from coderrr.config import (
     ENV_KEYS,
     Config,
+    McpServerConfig,
     config_path,
     keyring_delete,
     keyring_set,
@@ -23,6 +25,10 @@ from coderrr.config import (
     save_config,
 )
 from coderrr.llm import PROVIDERS, ProviderError, build_provider
+from coderrr.mcp import catalog
+from coderrr.mcp import setup as mcp_setup
+from coderrr.mcp.credentials import CredentialStore
+from coderrr.mcp.types import McpAuthRequired, McpError
 from coderrr.sandbox import docker_available
 from coderrr.skills.registry import SkillError, fetch_index
 from coderrr.spec.store import SpecStore
@@ -41,9 +47,11 @@ app = typer.Typer(
 config_app = typer.Typer(help="Configure provider, model and credentials.")
 spec_app = typer.Typer(help="Inspect spec artifacts.")
 skills_app = typer.Typer(help="Browse the skill registry.")
+mcp_app = typer.Typer(help="Connect MCP servers and inspect their tools.")
 app.add_typer(config_app, name="config")
 app.add_typer(spec_app, name="spec")
 app.add_typer(skills_app, name="skills")
+app.add_typer(mcp_app, name="mcp")
 
 
 def _console() -> Console:
@@ -348,6 +356,313 @@ def skills_search(query: str = typer.Argument(..., help="What you need help with
 
 
 # --------------------------------------------------------------------------
+# mcp
+# --------------------------------------------------------------------------
+
+
+@mcp_app.command("add")
+def mcp_add(
+    name: str = typer.Argument(..., help="Local name for the server, e.g. figma."),
+    target: list[str] = typer.Argument(
+        None,
+        help="A URL, or -- followed by a command to run. Omit for a built-in server.",
+    ),
+    transport: str = typer.Option(
+        "", "--transport", "-t", help="Force 'http' or 'stdio' instead of inferring."
+    ),
+    header: list[str] = typer.Option(
+        None,
+        "--header",
+        "-H",
+        help="HTTP header as KEY=VALUE. Quote '${VAR}' to read a token from the environment.",
+    ),
+    env: list[str] = typer.Option(
+        None, "--env", "-e", help="Environment variable for a stdio server, as KEY=VALUE."
+    ),
+    cwd: str = typer.Option("", "--cwd", help="Working directory for a stdio server."),
+    timeout: float = typer.Option(30.0, "--timeout", help="Seconds per request."),
+) -> None:
+    """Connect an MCP server.
+
+    Examples:
+
+      coderrr mcp add figma http://127.0.0.1:3845/mcp
+
+      coderrr mcp add notion https://mcp.notion.com/mcp -H 'Authorization=Bearer ${NOTION_TOKEN}'
+
+      coderrr mcp add sqlite -- npx -y @some/mcp-server --db ./app.db
+    """
+    ui = _console()
+    config = load_config()
+    target = list(target or [])
+
+    if name in config.mcp.servers:
+        ui.error(f"An MCP server named {name!r} already exists. Remove it first.")
+        raise typer.Exit(1)
+
+    try:
+        if not target:
+            resolved = catalog.resolve(name)
+            if resolved is None:
+                known = ", ".join(catalog.names()) or "none yet"
+                raise ValueError(
+                    f"give a URL or a command for {name!r} (built-in servers: {known})"
+                )
+            server = resolved
+        else:
+            server = mcp_setup.build_server(
+                target,
+                transport=transport,
+                headers=mcp_setup.parse_pairs(header, label="--header"),
+                env=mcp_setup.parse_pairs(env, label="--env"),
+                cwd=cwd,
+                timeout=timeout,
+            )
+    except ValueError as exc:
+        ui.error(str(exc))
+        raise typer.Exit(1) from exc
+
+    # A stdio server is a program that will run on this machine, with this
+    # user's environment, outside the sandbox that contains everything else
+    # Coderrr executes. That deserves an explicit yes; pasting a URL does not,
+    # because typing the URL is itself the decision.
+    if server.transport == "stdio":
+        ui.warning("This runs on your machine, outside Coderrr's sandbox:")
+        # markup=False: the user is being asked to approve this exact command, so
+        # it has to appear verbatim rather than having brackets read as styling.
+        ui.print(f"    {server.label}", markup=False)
+        if not ui.confirm("Add it?", default=False):
+            ui.info("Nothing was added.")
+            raise typer.Exit(1)
+
+    config.mcp.servers[name] = server
+    path = save_config(config)
+    ui.success(f"Added MCP server {name!r} → {server.label}")
+    ui.info(f"Saved to {path}")
+
+    # Verifying now is the difference between "added" and "working". A wrong port
+    # or an app that is not running should surface here, not mid-task.
+    try:
+        tools = asyncio.run(mcp_setup.probe(name, server))
+    except McpAuthRequired:
+        # The server wants OAuth. Offering it here is the whole point: a 401 is an
+        # invitation to sign in, not a failure to report.
+        ui.info(f"{name} requires you to sign in.")
+        if not ui.confirm("Open your browser to authorize now?", default=True):
+            ui.info(f"Sign in later with: coderrr mcp login {name}")
+            return
+        if not _run_login(ui, name, server, browser=True):
+            return
+        tools = _tools_after_login(ui, name, server)
+    except McpError as exc:
+        ui.warning(f"Saved, but could not connect yet: {exc}")
+        ui.info(f"Fix it and check with: coderrr mcp test {name}")
+        return
+
+    ui.success(f"Connected — {len(tools)} tool(s): {', '.join(tools[:8]) or 'none'}")
+
+
+def _run_login(ui: Console, name: str, server: McpServerConfig, *, browser: bool) -> bool:
+    """Drive the OAuth flow, reporting rather than raising. True on success."""
+    store = CredentialStore()
+
+    def show(url: str) -> None:
+        if browser:
+            ui.info("Opening your browser to authorize...")
+            webbrowser.open(url)
+            ui.print(f"  [dim]If it did not open: {url}[/]")
+        else:
+            ui.print("  Open this URL to authorize:")
+            ui.print(f"    {url}", markup=False)
+
+    try:
+        stored = asyncio.run(mcp_setup.login(name, server, store=store, open_url=show))
+    except McpError as exc:
+        ui.error(str(exc))
+        return False
+
+    where = store.located_in(name)
+    ui.success(f"Signed in to {name} as a client of {stored.issuer}")
+    ui.info(f"Credentials stored in the {where}." if where == "keyring" else f"Stored in {where}")
+    return True
+
+
+def _tools_after_login(ui: Console, name: str, server: McpServerConfig) -> list[str]:
+    try:
+        return asyncio.run(mcp_setup.probe(name, server))
+    except McpError as exc:
+        ui.warning(f"Signed in, but listing tools failed: {exc}")
+        return []
+
+
+@mcp_app.command("login")
+def mcp_login(
+    name: str = typer.Argument(..., help="Which server to sign in to."),
+    no_browser: bool = typer.Option(
+        False, "--no-browser", help="Print the URL instead of opening a browser."
+    ),
+) -> None:
+    """Sign in to a server that uses OAuth.
+
+    Only ever run deliberately, like this. Nothing during a task will open a
+    browser, so an agent run never blocks on one.
+    """
+    ui = _console()
+    config = load_config()
+
+    server = config.mcp.servers.get(name)
+    if server is None:
+        ui.error(f"No MCP server named {name!r}. See `coderrr mcp list`.")
+        raise typer.Exit(1)
+    if server.auth == "none":
+        ui.error(f'{name} is configured with auth = "none". Set it to "auto" first.')
+        raise typer.Exit(1)
+
+    if not _run_login(ui, name, server, browser=not no_browser):
+        raise typer.Exit(1)
+
+    tools = _tools_after_login(ui, name, server)
+    if tools:
+        ui.success(f"{len(tools)} tool(s) available: {', '.join(tools[:8])}")
+
+
+@mcp_app.command("logout")
+def mcp_logout(
+    name: str = typer.Argument(..., help="Which server to sign out of."),
+) -> None:
+    """Discard stored credentials for a server."""
+    ui = _console()
+    if CredentialStore().delete(name):
+        ui.success(f"Signed out of {name}.")
+    else:
+        ui.info(f"No stored credentials for {name}.")
+
+
+@mcp_app.command("list")
+def mcp_list() -> None:
+    """List configured MCP servers."""
+    ui = _console()
+    config = load_config()
+
+    if not config.mcp.servers:
+        ui.warning("No MCP servers yet. Add one with `coderrr mcp add <name> <url>`.")
+        return
+
+    store = CredentialStore()
+    ui.table(
+        ["Server", "Transport", "Target", "State", "Auth", "Always allowed"],
+        [
+            [
+                name,
+                server.transport,
+                server.label,
+                "enabled" if server.enabled else "disabled",
+                mcp_setup.auth_state(server, name, store),
+                str(len(server.allowed_tools)),
+            ]
+            for name, server in sorted(config.mcp.servers.items())
+        ],
+    )
+
+
+@mcp_app.command("test")
+def mcp_test(
+    name: str = typer.Argument(..., help="Which server to connect to."),
+) -> None:
+    """Connect to a server and list the tools it offers."""
+    ui = _console()
+    config = load_config()
+
+    server = config.mcp.servers.get(name)
+    if server is None:
+        ui.error(f"No MCP server named {name!r}. See `coderrr mcp list`.")
+        raise typer.Exit(1)
+
+    ui.info(f"Connecting to {name} ({server.label})...")
+    try:
+        tools = asyncio.run(mcp_setup.probe(name, server))
+    except McpAuthRequired as exc:
+        ui.warning(f"{name} is not signed in.")
+        ui.info(f"Run: coderrr mcp login {name}")
+        raise typer.Exit(1) from exc
+    except McpError as exc:
+        ui.error(str(exc))
+        raise typer.Exit(1) from exc
+
+    if not tools:
+        ui.warning("Connected, but the server offers no tools.")
+        return
+
+    ui.success(f"Connected — {len(tools)} tool(s)")
+    ui.table(
+        ["Tool", "Exposed as", "Approval"],
+        [
+            [
+                tool,
+                f"mcp__{name}__{tool}",
+                "always allowed" if tool in server.allowed_tools else "asks first",
+            ]
+            for tool in tools
+        ],
+    )
+
+
+@mcp_app.command("remove")
+def mcp_remove(
+    name: str = typer.Argument(..., help="Which server to remove."),
+) -> None:
+    """Remove a server and any remembered approvals for it."""
+    ui = _console()
+    config = load_config()
+
+    if name not in config.mcp.servers:
+        ui.error(f"No MCP server named {name!r}.")
+        raise typer.Exit(1)
+
+    del config.mcp.servers[name]
+    save_config(config)
+    ui.success(f"Removed MCP server {name!r}.")
+
+
+@mcp_app.command("enable")
+def mcp_enable(
+    name: str = typer.Argument(..., help="Which server to enable or disable."),
+    off: bool = typer.Option(False, "--off", help="Disable instead of enabling."),
+) -> None:
+    """Enable or disable a server without removing its configuration."""
+    ui = _console()
+    config = load_config()
+
+    server = config.mcp.servers.get(name)
+    if server is None:
+        ui.error(f"No MCP server named {name!r}.")
+        raise typer.Exit(1)
+
+    server.enabled = not off
+    save_config(config)
+    ui.success(f"{name} is now {'disabled' if off else 'enabled'}.")
+
+
+@mcp_app.command("reset")
+def mcp_reset(
+    name: str = typer.Argument(..., help="Which server to forget approvals for."),
+) -> None:
+    """Forget the "always allow" answers for a server."""
+    ui = _console()
+    config = load_config()
+
+    server = config.mcp.servers.get(name)
+    if server is None:
+        ui.error(f"No MCP server named {name!r}.")
+        raise typer.Exit(1)
+
+    count = len(server.allowed_tools)
+    server.allowed_tools.clear()
+    save_config(config)
+    ui.success(f"Cleared {count} remembered approval(s) for {name}. It will ask again.")
+
+
+# --------------------------------------------------------------------------
 # doctor / version
 # --------------------------------------------------------------------------
 
@@ -375,9 +690,24 @@ def doctor(
     tier = "docker" if (config.sandbox.tier in ("auto", "docker") and docker) else "scratch"
     rows.append(["sandbox", f"{tier} (docker {'available' if docker else 'not found'})"])
 
+    servers = config.mcp.servers
+    unsigned: list[str] = []
+    if servers:
+        enabled = len(config.mcp.enabled_servers())
+        rows.append(["mcp", f"{enabled}/{len(servers)} server(s) enabled"])
+        credentials = CredentialStore()
+        unsigned = [
+            name
+            for name, server in config.mcp.enabled_servers().items()
+            if mcp_setup.auth_state(server, name, credentials) == "not signed in"
+        ]
+
     store = SpecStore(directory.resolve())
     rows.append(["specs", str(len(store.list_refs()))])
     ui.table(["Check", "Value"], rows)
+
+    for name in unsigned:
+        ui.warning(f"MCP server {name} is not signed in. Run: coderrr mcp login {name}")
 
     endpoint = config.provider.endpoint
     if endpoint and not is_plausible_endpoint(endpoint):
