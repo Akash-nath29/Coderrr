@@ -69,6 +69,7 @@ def build_system_prompt(ctx: ToolContext) -> str:
         workspace=str(ctx.workspace),
         platform=f"{platform_mod.system()} ({platform_mod.machine()})",
         skills_block=ctx.skills.context_block(),
+        mcp_block=ctx.mcp.context_block(),
         spec_summary=spec_summary,
     )
 

@@ -53,10 +53,16 @@ paste `coderrr doctor` output here
 - Model: [e.g., gemma4:31b-cloud]
 - Sandbox tier: [scratch / docker]
 
+**MCP servers** (only if the issue involves one — `coderrr mcp list` shows this):
+- Server URL or command: [e.g., https://mcp.linear.app/mcp]
+- Transport: [http / stdio]
+- Auth: [signed in / not signed in / static header / none]
+
 **Which phase did it happen in?**
 - [ ] Planning (before the plan was approved)
 - [ ] Approval prompt
 - [ ] Execution (after approval)
+- [ ] Connecting or signing in to an MCP server
 
 ## Additional Context
 

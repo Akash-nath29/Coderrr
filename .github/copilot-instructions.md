@@ -10,15 +10,20 @@ HTTP.
 src/coderrr/
 ├── cli.py          typer entry point
 ├── agent/          loop.py (the runtime), session.py (two-phase flow), modes.py
-├── llm/            normalized types + 3 HTTP adapters
+├── llm/            normalized types + 3 HTTP adapters, schema.py ($ref flattening)
 ├── tools/          read/ · write/ · system/
 ├── spec/           spec artifact store, models, markdown parser
 ├── sandbox/        scratch (default) and docker tiers
 ├── skills/         registry client, ephemeral loader
+├── mcp/            custom MCP servers: client (wire) · oauth · credentials ·
+│                   bridge · manager · naming · setup · types
 ├── policy/         paths.py (containment), gate.py (approval)
 ├── prompts/        system prompt assembly
 └── verify.py       LLM write verification
 ```
+
+`mcp/` has no SDK dependency — the JSON-RPC client, both transports, and OAuth 2.1
+are written over `httpx`, for the same reason the provider adapters are.
 
 ## The invariants — do not weaken these
 
@@ -39,6 +44,19 @@ the only execution path. v1's `run_command` was removed deliberately.
 everything and returns `ToolResult.error(...)` so the model can recover. A tool
 crash must not kill the loop.
 
+**5. An MCP server's claims about itself decide nothing.** Annotations like
+`readOnlyHint` may shape the wording of a prompt; `policy/gate.py` reads the
+user's stored answer in `allowed_tools`/`denied_tools` and nothing else. MCP tools
+are class `EXTERNAL`, exposed in both modes, and approved per tool.
+
+**6. No browser opens during a run.** OAuth's interactive leg belongs to
+`mcp add`/`mcp login`. Silent refresh anywhere is fine; a task blocking on a
+browser is not.
+
+**7. Only `mcp/client.py` speaks the wire format.** Everything above it uses
+`mcp/types.py`. That boundary is why the official SDK could be dropped by
+rewriting one file with no test changes.
+
 ## Conventions
 
 - **Read/write tools document themselves** through pydantic field descriptions —
@@ -57,7 +75,14 @@ crash must not kill the loop.
 tested deterministically with no network and no API key. Provider adapters are
 tested against recorded SSE fixtures via `respx`.
 
-Tests must never touch the real `~/.coderrr`. Everything roots in `tmp_path`.
+MCP uses `tests/test_mcp.py::FakeConnection` rather than a live server. The OAuth
+flow does run for real against a loopback socket with an injected `open_url` — if
+you touch it, add `respx.mock.route(host="127.0.0.1").pass_through()` or the
+redirect is intercepted and the login hangs, and pass a short `timeout=` because
+the production default is 300 seconds.
+
+Tests must never touch the real `~/.coderrr`. Everything roots in `tmp_path`, and
+`CredentialStore` must be constructed with `use_keyring=False`.
 
 ```bash
 uv sync --all-extras --dev
